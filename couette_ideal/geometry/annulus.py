@@ -20,6 +20,14 @@ Single mesh:
     python annulus.py -o ecc.msh --eccentricity 0.0001
     python annulus.py -o annulus.msh --gui      # inspect before writing
 
+Refinement. Counts are explicit by default; a target cell size derives them
+instead (rounded up, so the achieved size is at or below what you ask for):
+    python annulus.py -o fine.msh --max-size 50e-6
+    python annulus.py -o aniso.msh --max-size-r 10e-6 --max-size-a 500e-6
+An explicit --nr / --na always wins over a size. The gradients here are purely
+radial, so the second form is usually what you want: refining azimuthally to
+the radial size multiplies the cell count for nothing.
+
 Sweep (from your own driver script):
     from annulus import build_annulus
     for e in [0.0, 25e-6, 50e-6, 100e-6]:
@@ -27,23 +35,23 @@ Sweep (from your own driver script):
 """
 
 import argparse
+import math
 import sys
 
 import gmsh
 
+# Re-exported, so `from annulus import DEF_RI` keeps working for any driver
+# script that already does it.
+from common import (
+    COLOR_MODES, DEF_RI, DEF_RO, ELEM_NAMES,
+    color_mode, pick_size, resolve_count,
+)
+
 
 # ---------------------------------------------------------------------------
-# Element type codes used by gmsh.model.mesh.getElements
+# Fallback counts, used when neither an explicit count nor a target cell size
+# is given.
 # ---------------------------------------------------------------------------
-ELEM_NAMES = {1: "line", 2: "triangle", 3: "quad", 4: "tet", 5: "hex", 6: "prism"}
-
-# ---------------------------------------------------------------------------
-# Rig geometry. Single source of truth: both the build_annulus signature and
-# the CLI read these, so an import-driven sweep and a command-line run cannot
-# silently describe different annuli.
-# ---------------------------------------------------------------------------
-DEF_RI = 0.010     # inner (rotating) radius, m
-DEF_RO = 0.0105    # outer (stationary) radius, m
 DEF_NR = 20        # radial cells across the gap
 DEF_NA = 20        # azimuthal cells per quadrant
 DEF_BUMP = 1.0
@@ -53,12 +61,16 @@ def build_annulus(
     Ri=DEF_RI,
     Ro=DEF_RO,
     t=None,
-    nr=DEF_NR,
-    na=DEF_NA,
+    nr=None,
+    na=None,
+    max_size=None,
+    max_size_r=None,
+    max_size_a=None,
     bump=DEF_BUMP,
     eccentricity=0.0,
     out_path="annulus.msh",
     gui=False,
+    color_by="physical",
     verbose=True,
 ):
     """Generate a structured hex annulus and write it as MSH 2 ASCII.
@@ -72,9 +84,19 @@ def build_annulus(
         'empty' patch. None (the default) sets it to the radial cell size,
         (Ro - Ri) / nr, which keeps the aspect ratio near unity so checkMesh
         stays quiet. Pass a number to override.
-    nr, na : int
+    nr, na : int or None
         Radial cells across the gap, and azimuthal cells per quadrant. Total
-        cell count is nr * na * 4.
+        cell count is nr * na * 4. None (the default) falls back to max_size,
+        and then to DEF_NR / DEF_NA.
+    max_size : float or None
+        Target upper bound on cell size, metres, in every direction at once.
+        Counts are rounded up, so the achieved size is at or below this.
+    max_size_r, max_size_a : float or None
+        Per-direction overrides of max_size, radial and azimuthal. Use these
+        to keep the deliberate anisotropy of this mesh: for concentric Couette
+        the gradients are purely radial, so the azimuthal direction does not
+        need the radial resolution. The azimuthal size is measured on the
+        outer arc, the longest one, so the bound holds everywhere.
     bump : float
         Radial clustering. 1.0 is uniform; values below 1 cluster nodes toward
         both walls, the analogue of blockMesh's two-sided simpleGrading. Wall
@@ -103,8 +125,14 @@ def build_annulus(
 
     gap = Ro - Ri
 
-    if nr < 1 or na < 1:
-        raise ValueError(f"nr and na must be >= 1; got nr={nr}, na={na}")
+    # Azimuthal size is judged on the outer arc, the longest of the four in a
+    # quadrant, so a requested bound is met on the inner arc too.
+    arc_quadrant = 0.5 * math.pi * Ro
+
+    nr, nr_src = resolve_count(
+        "nr", nr, gap, pick_size(max_size_r, max_size), DEF_NR)
+    na, na_src = resolve_count(
+        "na", na, arc_quadrant, pick_size(max_size_a, max_size), DEF_NA)
 
     # abs(): a negative eccentricity offsets the inner cylinder along -x, which
     # is just as capable of making the walls intersect as a positive one.
@@ -290,8 +318,14 @@ def build_annulus(
             if counts.get("hex", 0) != expected or "tet" in counts:
                 print("  WARNING: not a pure structured hex mesh")
             print(f"  gap        {gap * 1e3:8.3f} mm")
+            d_r = gap / nr
+            d_a = arc_quadrant / na
+            print(f"  radial     {nr:5d} cells  {d_r * 1e6:8.1f} um  [{nr_src}]")
+            print(f"  azimuthal  {na * 4:5d} cells  {d_a * 1e6:8.1f} um  "
+                  f"[{na_src}, on the outer arc]")
+            print(f"  in-plane aspect {d_a / d_r:6.1f}")
             print(f"  thickness  {t * 1e3:8.4f} mm  "
-                  f"(z/radial aspect {t / (gap / nr):.2f})")
+                  f"(z/radial aspect {t / d_r:.2f})")
             if ae > 0:
                 print(f"  eccentricity {e * 1e6:6.1f} um  "
                       f"(ratio {ae / gap:.3f})")
@@ -304,6 +338,11 @@ def build_annulus(
             print()
 
         if gui:
+            # Display only -- see COLOR_MODES. Colouring by physical group is
+            # what makes the patch assignment visible, which is the reason to
+            # open the GUI at all.
+            gmsh.option.setNumber("Mesh.ColorCarousel", color_mode(color_by))
+            gmsh.option.setNumber("Mesh.SurfaceFaces", 1)
             gmsh.fltk.run()
 
         gmsh.write(out_path)
@@ -324,13 +363,23 @@ def main():
     ap.add_argument("--Ro", type=float, default=DEF_RO, help="outer radius, m")
     ap.add_argument("-t", "--thickness", type=float, default=None,
                     help="axial thickness, m; default is the radial cell size")
-    ap.add_argument("--nr", type=int, default=DEF_NR, help="radial cells")
-    ap.add_argument("--na", type=int, default=DEF_NA,
-                    help="azimuthal cells per quadrant")
+    ap.add_argument("--nr", type=int, default=None,
+                    help=f"radial cells (default {DEF_NR})")
+    ap.add_argument("--na", type=int, default=None,
+                    help=f"azimuthal cells per quadrant (default {DEF_NA})")
+    ap.add_argument("--max-size", type=float, default=None,
+                    help="target max cell size in every direction, m")
+    ap.add_argument("--max-size-r", type=float, default=None,
+                    help="target max radial cell size, m; overrides --max-size")
+    ap.add_argument("--max-size-a", type=float, default=None,
+                    help="target max azimuthal cell size, m; overrides --max-size")
     ap.add_argument("--bump", type=float, default=DEF_BUMP,
                     help="radial clustering; <1 clusters at both walls")
     ap.add_argument("-e", "--eccentricity", type=float, default=0.0, help="metres")
     ap.add_argument("--gui", action="store_true", help="open Gmsh before writing")
+    ap.add_argument("--color-by", default="physical",
+                    choices=sorted(COLOR_MODES),
+                    help="GUI mesh colouring; display only, never written")
     args = ap.parse_args()
 
     build_annulus(
@@ -339,10 +388,14 @@ def main():
         t=args.thickness,
         nr=args.nr,
         na=args.na,
+        max_size=args.max_size,
+        max_size_r=args.max_size_r,
+        max_size_a=args.max_size_a,
         bump=args.bump,
         eccentricity=args.eccentricity,
         out_path=args.output,
         gui=args.gui,
+        color_by=args.color_by,
     )
 
 

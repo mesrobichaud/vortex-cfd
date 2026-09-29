@@ -1,0 +1,25 @@
+#!/bin/sh
+# Mesh step, run by pyFoamPrepareCase.py from the case directory.
+# gmsh (geometry/annulus.py) -> MSH 2 -> gmshToFoam -> patch types.
+set -e
+
+# The builders live in the case-group's geometry/ directory. Walk up to it, so
+# this works whether the case sits in cases/, base/ or a sweep directory.
+group=$(pwd)
+while [ ! -d "$group/geometry" ]; do
+    [ "$group" = / ] && { echo "no geometry/ directory above $(pwd)" >&2; exit 1; }
+    group=$(dirname "$group")
+done
+
+python "$group/geometry/annulus.py" -o annulus.msh \
+    --Ri |-Ri-| --Ro |-Ro-| --eccentricity |-ecc-| \
+    --nr |-nr-| --na |-na-| --bump |-bump-|
+
+gmshToFoam annulus.msh
+
+# gmshToFoam writes every patch as type 'patch'.
+pyFoamChangeBoundaryType.py . frontAndBack empty
+pyFoamChangeBoundaryType.py . innerWall wall
+pyFoamChangeBoundaryType.py . outerWall wall
+
+checkMesh

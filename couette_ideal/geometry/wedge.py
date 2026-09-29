@@ -42,6 +42,16 @@ Single mesh:
     python wedge.py -o nogap.msh --bottom-gap 0
     python wedge.py -o wedge.msh --gui       # inspect before writing
 
+Refinement. Counts are explicit by default; a target cell size derives them
+instead (rounded up, so the achieved size is at or below what you ask for):
+    python wedge.py -o fine.msh  --max-size 50e-6
+    python wedge.py -o mixed.msh --max-size-r 250e-6 --max-size-z 100e-6
+    python wedge.py -o hand.msh  --max-size-z 100e-6 --nr-gap 40
+An explicit --nr-gap / --nz-ann / ... always wins over a size. The core is 20x
+the gap, so a single --max-size spends most of its cells under the bob; the
+mixed form above keeps the core coarse and resolves the gap by hand. The theta
+direction is exempt either way: a wedge is one cell thick by definition.
+
 Sweep (from your own driver script):
     from wedge import build_wedge
     for hb in [0.0, 0.5e-3, 1.0e-3, 2.0e-3]:
@@ -57,18 +67,15 @@ import sys
 
 import gmsh
 
-# Rig radii live in annulus.py so the r-theta and r-z meshes cannot drift apart
-# and start describing different hardware.
-from annulus import DEF_RI, DEF_RO
+from common import (
+    COLOR_MODES, DEF_RI, DEF_RO, ELEM_NAMES,
+    color_mode, pick_size, resolve_count,
+)
 
 
 # ---------------------------------------------------------------------------
-# Element type codes used by gmsh.model.mesh.getElements
-# ---------------------------------------------------------------------------
-ELEM_NAMES = {1: "line", 2: "triangle", 3: "quad", 4: "tet", 5: "hex", 6: "prism"}
-
-# ---------------------------------------------------------------------------
-# Defaults specific to the r-z section.
+# Defaults specific to the r-z section. The counts are fallbacks, used when
+# neither an explicit count nor a target cell size is given.
 # ---------------------------------------------------------------------------
 DEF_H = 0.015          # immersed height of the annular section, m
 DEF_HB = 0.001         # bottom gap; 0 disables the L and gives a rectangle, m
@@ -86,14 +93,18 @@ def build_wedge(
     bottom_gap=DEF_HB,
     r_axis=0.0,
     angle=DEF_ANGLE,
-    nr_gap=DEF_NR_GAP,
-    nr_core=DEF_NR_CORE,
-    nz_ann=DEF_NZ_ANN,
-    nz_bot=DEF_NZ_BOT,
+    nr_gap=None,
+    nr_core=None,
+    nz_ann=None,
+    nz_bot=None,
+    max_size=None,
+    max_size_r=None,
+    max_size_z=None,
     bump_r=1.0,
     bump_z=1.0,
     out_path="wedge.msh",
     gui=False,
+    color_by="physical",
     verbose=True,
 ):
     """Generate an axisymmetric wedge of the r-z section, as MSH 2 ASCII.
@@ -118,11 +129,23 @@ def build_wedge(
     angle : float
         Wedge opening angle in degrees. 5 is the usual OpenFOAM choice; the
         sector is built as +/- angle/2 so the end planes straddle y = 0.
-    nr_gap, nr_core : int
+    nr_gap, nr_core : int or None
         Radial cells across Ri..Ro, and across r_axis..Ri. The second is only
-        used when bottom_gap > 0.
-    nz_ann, nz_bot : int
+        used when bottom_gap > 0. None falls back to max_size, then to the
+        DEF_* constant.
+    nz_ann, nz_bot : int or None
         Axial cells up the annulus, and across the bottom gap.
+    max_size : float or None
+        Target upper bound on cell size, metres, in every direction at once.
+        Counts are rounded up, so the achieved size is at or below this. Note
+        the theta direction is exempt: a wedge is one cell thick by definition,
+        so its cell size is set by `angle` and Ro alone.
+    max_size_r, max_size_z : float or None
+        Per-direction overrides of max_size, radial and axial. Radial covers
+        both the gap and the core, axial both the annulus and the bottom gap.
+        The core is ~20x the gap here, so a single global max_size spends most
+        of its cells under the bob; set max_size_r coarse and refine the gap
+        with an explicit nr_gap when that matters.
     bump_r : float
         Radial clustering across the annular gap; < 1 clusters toward both
         walls. This is where the wall shear stress is evaluated.
@@ -151,12 +174,21 @@ def build_wedge(
     gap = Ro - Ri
     has_bottom = bottom_gap > 0.0
 
-    counts_needed = {"nr_gap": nr_gap, "nz_ann": nz_ann}
+    size_r = pick_size(max_size_r, max_size)
+    size_z = pick_size(max_size_z, max_size)
+
+    nr_gap, src_gap = resolve_count("nr_gap", nr_gap, gap, size_r, DEF_NR_GAP)
+    nz_ann, src_ann = resolve_count("nz_ann", nz_ann, H, size_z, DEF_NZ_ANN)
     if has_bottom:
-        counts_needed.update({"nr_core": nr_core, "nz_bot": nz_bot})
-    for name, n in counts_needed.items():
-        if n < 1:
-            raise ValueError(f"{name} must be >= 1; got {n}")
+        nr_core, src_core = resolve_count(
+            "nr_core", nr_core, Ri - r_axis, size_r, DEF_NR_CORE)
+        nz_bot, src_bot = resolve_count(
+            "nz_bot", nz_bot, bottom_gap, size_z, DEF_NZ_BOT)
+    else:
+        # Blocks A and B are never built, so these counts go unused. Zero
+        # rather than a stale default keeps the cell-count arithmetic honest.
+        nr_core = nz_bot = 0
+        src_core = src_bot = "unused"
 
     half = math.radians(angle) / 2.0
     hb = bottom_gap if has_bottom else 0.0
@@ -443,16 +475,20 @@ def build_wedge(
                 print(f"  WARNING: {degenerate} cells carry a repeated node; "
                       "gmshToFoam will not accept these")
             print()
-            print(f"  gap        {gap * 1e3:9.4f} mm   "
-                  f"({nr_gap} cells, {gap / nr_gap * 1e6:.1f} um)")
-            print(f"  annulus H  {H * 1e3:9.4f} mm   "
-                  f"({nz_ann} cells, {H / nz_ann * 1e6:.1f} um)")
+            def line(label, length, n, src):
+                print(f"  {label:<10s} {length * 1e3:9.4f} mm   "
+                      f"{n:5d} cells  {length / n * 1e6:8.1f} um  [{src}]")
+
+            line("gap", gap, nr_gap, src_gap)
+            line("annulus H", H, nz_ann, src_ann)
             if has_bottom:
-                print(f"  bottom gap {hb * 1e3:9.4f} mm   "
-                      f"({nz_bot} cells, {hb / nz_bot * 1e6:.1f} um)")
-                print(f"  core       {(Ri - r_axis) * 1e3:9.4f} mm   "
-                      f"({nr_core} cells, "
-                      f"{(Ri - r_axis) / nr_core * 1e6:.1f} um)")
+                line("bottom gap", hb, nz_bot, src_bot)
+                line("core", Ri - r_axis, nr_core, src_core)
+            # theta is not a refinement direction: a wedge is one cell thick,
+            # so this size follows from the opening angle alone.
+            print(f"  {'theta':<10s} {'':12s}     1 cells  "
+                  f"{Ro * math.radians(angle) * 1e6:8.1f} um  [angle, at Ro]")
+            if has_bottom:
                 # Rough end-effect scale, both over a common pi*mu*Omega:
                 #   side torque  = 2 pi mu Omega Ri^3 H / gap   (Couette)
                 #   base torque  =   pi mu Omega Ri^4 / (2 hb)  (torsional)
@@ -487,6 +523,11 @@ def build_wedge(
             print()
 
         if gui:
+            # Display only -- see COLOR_MODES. Colouring by physical group is
+            # what makes the patch assignment visible, which is the reason to
+            # open the GUI at all.
+            gmsh.option.setNumber("Mesh.ColorCarousel", color_mode(color_by))
+            gmsh.option.setNumber("Mesh.SurfaceFaces", 1)
             gmsh.fltk.run()
 
         gmsh.write(out_path)
@@ -515,19 +556,28 @@ def main():
                     help="inner radius of the foot, m; 0 reaches the axis")
     ap.add_argument("--angle", type=float, default=DEF_ANGLE,
                     help="wedge opening angle, degrees")
-    ap.add_argument("--nr-gap", type=int, default=DEF_NR_GAP,
-                    help="radial cells across the annular gap")
-    ap.add_argument("--nr-core", type=int, default=DEF_NR_CORE,
-                    help="radial cells from the axis to Ri")
-    ap.add_argument("--nz-ann", type=int, default=DEF_NZ_ANN,
-                    help="axial cells up the annulus")
-    ap.add_argument("--nz-bot", type=int, default=DEF_NZ_BOT,
-                    help="axial cells across the bottom gap")
+    ap.add_argument("--nr-gap", type=int, default=None,
+                    help=f"radial cells across the gap (default {DEF_NR_GAP})")
+    ap.add_argument("--nr-core", type=int, default=None,
+                    help=f"radial cells axis to Ri (default {DEF_NR_CORE})")
+    ap.add_argument("--nz-ann", type=int, default=None,
+                    help=f"axial cells up the annulus (default {DEF_NZ_ANN})")
+    ap.add_argument("--nz-bot", type=int, default=None,
+                    help=f"axial cells across the foot (default {DEF_NZ_BOT})")
+    ap.add_argument("--max-size", type=float, default=None,
+                    help="target max cell size in r and z, m")
+    ap.add_argument("--max-size-r", type=float, default=None,
+                    help="target max radial cell size, m; overrides --max-size")
+    ap.add_argument("--max-size-z", type=float, default=None,
+                    help="target max axial cell size, m; overrides --max-size")
     ap.add_argument("--bump-r", type=float, default=1.0,
                     help="radial clustering in the gap; <1 clusters at walls")
     ap.add_argument("--bump-z", type=float, default=1.0,
                     help="axial clustering in the bottom gap; <1 at the walls")
     ap.add_argument("--gui", action="store_true", help="open Gmsh before writing")
+    ap.add_argument("--color-by", default="physical",
+                    choices=sorted(COLOR_MODES),
+                    help="GUI mesh colouring; display only, never written")
     args = ap.parse_args()
 
     build_wedge(
@@ -541,10 +591,14 @@ def main():
         nr_core=args.nr_core,
         nz_ann=args.nz_ann,
         nz_bot=args.nz_bot,
+        max_size=args.max_size,
+        max_size_r=args.max_size_r,
+        max_size_z=args.max_size_z,
         bump_r=args.bump_r,
         bump_z=args.bump_z,
         out_path=args.output,
         gui=args.gui,
+        color_by=args.color_by,
     )
 
 
