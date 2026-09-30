@@ -1,6 +1,6 @@
 # CFD
 
-OpenFOAM simulations of the CPB rig. Meshes are built with gmsh and cases are
+OpenFOAM simulations of the CPB device. Meshes are built with gmsh and cases are
 set up with PyFoam.
 
 Each simulation run is a **case**, generated from a **case template** and a
@@ -18,26 +18,31 @@ CFD/
     units.py                  unit conversion to SI (rpm, mm, mPa.s, nu = mu/rho)
     monitor.py                live plots of a running case
 
+  geometry/                   gmsh mesh builders, shared by all base cases
+    common.py                 device dimensions used by the builders
+    annulus.py                2D r-theta annulus  (annulus_stream-plane)
+    wedge.py                  axisymmetric r-z wedge  (annulus_span-plane)
+
   annulus_stream-plane/       base case: annular gap in the r-theta plane
-    geometry/                 gmsh mesh builders and rig dimensions
-    base/annulus2D/           case template
+    base/annulus-2D/           case template
     studies/                  parameter files for named runs and sweeps
     cases/                    generated cases (not tracked by git)
 
   annulus_span-plane/         base case: annular gap in the r-z plane
-    geometry/
     base/wedge-2D/
     studies/
     cases/
 ```
 
-Each top-level folder is a **base case**: one geometry and its case
-template. Usually `base/` holds a single template.
+Each `annulus_*` folder is a **base case**: one flow setup and its case
+template. Usually `base/` holds a single template. Mesh builders are kept in
+the top-level `geometry/` folder so that base cases modelling the same device
+share one set of dimensions.
 
 | Folder | Contents | Edit it to change |
 |---|---|---|
 | `src/cfdtools/` | Code that does not depend on a specific geometry | Shared tools |
-| `<base case>/geometry/` | Mesh builders and rig dimensions | The geometry or mesh |
+| `geometry/` | Mesh builders and device dimensions | The geometry or mesh |
 | `<base case>/base/<template>/` | Boundary conditions, models, schemes, solver settings, outputs | The physics or numerics |
 | `<base case>/studies/` | Parameter files | The values to run |
 | `<base case>/cases/` | Generated cases | Nothing: regenerate instead |
@@ -86,7 +91,7 @@ Run all commands below in that shell, from inside a base case folder
 ### 1. Generate a case
 
 ```bash
-pyFoamPrepareCase.py cases/<name> --clone-case=base/annulus2D
+pyFoamPrepareCase.py cases/<name> --clone-case=base/annulus-2D
 ```
 
 This copies the template to `cases/<name>` and then:
@@ -108,7 +113,7 @@ The parameter values used are saved in `cases/<name>/PyFoamPrepareCaseParameters
 For a single run:
 
 ```bash
-pyFoamPrepareCase.py cases/ecc02 --clone-case=base/annulus2D \
+pyFoamPrepareCase.py cases/ecc02 --clone-case=base/annulus-2D \
     --values-string="{'eccentricity_mm':0.2, 'speed_rpm':200}"
 ```
 
@@ -122,7 +127,7 @@ speed_rpm       200;
 ```
 
 ```bash
-pyFoamPrepareCase.py cases/ecc02 --clone-case=base/annulus2D \
+pyFoamPrepareCase.py cases/ecc02 --clone-case=base/annulus-2D \
     --parameter-file=studies/ecc02.parameters
 ```
 
@@ -193,7 +198,7 @@ created. To use the current template, delete the case and generate it again:
 
 ```bash
 mv cases/<name> ~/.Trash/
-pyFoamPrepareCase.py cases/<name> --clone-case=base/annulus2D
+pyFoamPrepareCase.py cases/<name> --clone-case=base/annulus-2D
 ```
 
 To rebuild only the mesh, run `./meshCreate.sh` inside the case.
@@ -204,13 +209,13 @@ Loop over values in the shell:
 
 ```bash
 for e in 0.0 0.1 0.2 0.3 0.4; do
-  pyFoamPrepareCase.py cases/ecc_$e --clone-case=base/annulus2D \
+  pyFoamPrepareCase.py cases/ecc_$e --clone-case=base/annulus-2D \
       --values-string="{'eccentricity_mm':$e}"
   (cd cases/ecc_$e && pimpleFoam > log.pimpleFoam)
 done
 ```
 
-PyFoam also has `pyFoamRunParameterVariation.py base/annulus2D
+PyFoam also has `pyFoamRunParameterVariation.py base/annulus-2D
 studies/<sweep>.variations`. A `.variations` file is an OpenFOAM dictionary
 with a `values` subdictionary that lists the values of each parameter, and
 it must include a `solver` entry, e.g. `solver (pimpleFoam);`. See `--help`.
@@ -245,8 +250,9 @@ per process. On Apple silicon, start with one process per performance core.
   --clone-case` does not copy `0.orig`.
 - `meshCreate.sh.template` must be executable (`chmod +x`). The generated
   `meshCreate.sh` gets the same permissions.
-- `meshCreate.sh` looks for the `geometry/` folder in the case folder and then
-  in each parent folder, and uses the first one it finds.
+- `meshCreate.sh` looks for a `geometry/` folder in the case folder and then
+  in each parent folder, and uses the first one it finds. For the current
+  base cases that is the top-level `CFD/geometry/`.
 
 ## Adding a base case
 
@@ -254,15 +260,15 @@ per process. On Apple silicon, start with one process per performance core.
 
    ```
    <new base case>/
-     geometry/        gmsh mesh builder(s)
      base/<template>/
      studies/
      cases/.gitkeep
    ```
 
-2. Write the mesh builder in `geometry/`. It must write MSH 2.2 ASCII (the
-   only format `gmshToFoam` reads). Physical group names become the
-   OpenFOAM patch names.
+2. Add the mesh builder to the top-level `geometry/` folder. It must write
+   MSH 2.2 ASCII (the only format `gmshToFoam` reads). Physical group names
+   become the OpenFOAM patch names. Put dimensions shared with other
+   builders in `geometry/common.py`.
 3. Copy the OpenFOAM tutorial closest to the new flow into
    `base/<template>/`:
    - `foamSearch $FOAM_TUTORIALS system/controlDict application` lists the
@@ -270,7 +276,7 @@ per process. On Apple silicon, start with one process per performance core.
    - Rename `0` or `0.orig` to `0.org`.
    - Delete the tutorial's `Allrun`, `Allclean` and `blockMeshDict`.
    - Rename the boundary conditions in `0.org/*` to match your patch names.
-4. Copy `meshCreate.sh.template` from `annulus_stream-plane/base/annulus2D/`.
+4. Copy `meshCreate.sh.template` from `annulus_stream-plane/base/annulus-2D/`.
    Change the mesh builder command and the patch types (`empty`, `wedge`,
    `wall`, ...).
 5. Get the case running with fixed values first, without parameters or
@@ -290,11 +296,12 @@ per process. On Apple silicon, start with one process per performance core.
 
 | Base case | Template | Mesh | Solver | Patches | Status |
 |---|---|---|---|---|---|
-| `annulus_stream-plane` | `annulus2D` | `geometry/annulus.py`: 2D r-theta annulus, optional eccentricity | pimpleFoam, laminar, Newtonian | `innerWall` (rotating), `outerWall`, `frontAndBack` (empty) | Working |
-| `annulus_span-plane` | `wedge-2D` | `geometry/wedge.py`: axisymmetric r-z wedge | pimpleFoam, laminar, Newtonian | `front`, `back` (wedge), `rotorSide`, `rotorBottom`, `cupWall`, `cupBottom`, `top` | Not set up: currently a copy of `annulus2D` |
+| `annulus_stream-plane` | `annulus-2D` | `geometry/annulus.py`: 2D r-theta annulus, optional eccentricity | pimpleFoam, laminar, Newtonian | `innerWall` (rotating), `outerWall`, `frontAndBack` (empty) | Working |
+| `annulus_span-plane` | `wedge-2D` | `geometry/wedge.py`: axisymmetric r-z wedge | pimpleFoam, laminar, Newtonian | `front`, `back` (wedge), `rotorSide`, `rotorBottom`, `cupWall`, `cupBottom`, `top` | Not set up: currently a copy of `annulus-2D` |
 
 Mesh files (`*.msh`) are not tracked by git. Each case builds its own mesh.
-To build one directly, run e.g. `python geometry/annulus.py --help`.
+To build one directly, from the repository root, run e.g.
+`python geometry/annulus.py --help`.
 
 ## License
 
