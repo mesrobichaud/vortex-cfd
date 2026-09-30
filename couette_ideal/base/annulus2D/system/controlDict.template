@@ -46,6 +46,14 @@ runTimeModifiable true;
 
 functions
 {
+    // Initial residuals per time step, for python -m cfdtools.monitor.
+    residuals
+    {
+        type            solverInfo;
+        libs            (utilityFunctionObjects);
+        fields          (U p);
+    }
+
     // Torque on the bob about its own axis. The mesh is one cell thick in z,
     // so this is torque over the mesh thickness, not per unit length.
     bobTorque

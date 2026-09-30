@@ -16,6 +16,8 @@ python "$group/geometry/annulus.py" -o annulus.msh \
     --nr |-nr-| --na |-na-| --bump |-bump-|
 
 gmshToFoam annulus.msh
+# Converted into constant/polyMesh; regenerate with geometry/annulus.py if needed.
+rm -f annulus.msh
 
 # gmshToFoam writes every patch as type 'patch'.
 pyFoamChangeBoundaryType.py . frontAndBack empty

@@ -34,7 +34,6 @@ COLOR_MODES = {
     "partition": 3,   # by mesh partition
 }
 
-
 def color_mode(name):
     """Mesh.ColorCarousel value for a mode name."""
     if name not in COLOR_MODES:

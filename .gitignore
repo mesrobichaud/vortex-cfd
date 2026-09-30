@@ -8,3 +8,11 @@
 
 # pip install -e .
 *.egg-info/
+
+# Meshes -- regenerate with the builders in */geometry/
+*.msh
+# Editor setup (machine-specific: conda + macOS openfoam app)
+.vscode/
+
+# Hiding license temporarily 
+LICENSE

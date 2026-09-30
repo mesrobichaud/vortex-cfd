@@ -6,7 +6,13 @@ build-backend = "setuptools.build_meta"
 name = "cfdtools"
 version = "0.1.0"
 description = "Helpers shared across the CFD case-groups"
+license = "MIT"
 requires-python = ">=3.10"
+dependencies = [
+    "gmsh>=4.15,<5",      # Python API + bundled gmsh binary
+    "PyFoam>=2026.6",
+    "matplotlib",         # cfdtools.monitor
+]
 
-[tool.setuptools]
-packages = ["cfdtools"]
+[tool.setuptools.packages.find]
+where = ["src"]

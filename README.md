@@ -1,6 +1,6 @@
 # CFD
 
-OpenFOAM cases for the CPB rig, meshed with gmsh and set up with PyFoam.
+OpenFOAM workflow using meshing with gmsh and set up with PyFoam.
 
 Every run is built from a **base case** (a normal OpenFOAM case with a few
 templated values) plus a **parameter set**. Each step -- mesh, fields,
@@ -11,10 +11,11 @@ from parameters. There is no single script that builds everything.
 
 ```
 CFD/
-  cfdtools/                 shared Python helpers (import cfdtools.*)
+  pyproject.toml            Python dependencies + installs src/cfdtools
+  src/cfdtools/             shared Python helpers (import cfdtools.*)
     mesh.py                 gmsh sizing helpers, element table, colour modes
     units.py                lab units -> SI (rpm, mm, mPa.s, nu = mu/rho)
-  pyproject.toml            makes cfdtools pip-installable
+    monitor.py              live plots of a running case (python -m cfdtools.monitor)
 
   couette_ideal/            a case-group: one rig geometry, many runs
     geometry/               gmsh mesh builders (annulus.py, wedge.py) + rig dimensions
@@ -28,7 +29,7 @@ CFD/
 
 **What goes where**
 
-- `cfdtools/`: code that doesn't depend on any particular geometry. Write
+- `src/cfdtools/`: code that doesn't depend on any particular geometry. Write
   helpers inside the case-group first, and move them here once a second
   group needs them.
 - `<group>/geometry/`: the mesh builders and rig dimensions for that group.
@@ -38,20 +39,39 @@ CFD/
 - `<group>/cases/`: output only. Anything worth keeping goes back into
   `base/` or `studies/`, so any case can be regenerated.
 
-## One-time setup
+## Requirements
+
+- **OpenFOAM v2606** (the ESI/openfoam.com release). It is installed
+  separately; pip does not install it.
+  - macOS: [openfoam-app](https://github.com/gerlero/openfoam-app), which
+    provides the `openfoam` command used below.
+  - Linux / WSL: the packages at
+    [openfoam.com/download](https://www.openfoam.com/download).
+
+  Other recent ESI versions will probably work but are untested. The
+  Foundation releases (openfoam.org) use different dictionary names and
+  won't run the base cases unchanged.
+- **Python 3.10+**, in any environment (conda, venv, ...).
+
+## Setup
+
+From the repository root, in a fresh environment:
 
 ```bash
-conda activate cfd                  # has gmsh, PyFoam, numpy
-pip install -e .                    # from CFD/, installs cfdtools in editable mode
+conda create -n cfd python=3.12 && conda activate cfd    # or: python -m venv .venv && source .venv/bin/activate
+pip install -e .                                         # gmsh, PyFoam, and src/cfdtools
 ```
 
-OpenFOAM (v2606, macOS app) must be on the path whenever PyFoam runs,
-because PyFoam calls the OpenFOAM utilities. Start the OpenFOAM shell from
-the activated env:
+The Python dependencies are listed in `pyproject.toml`. `cfdtools` is
+installed in editable mode, so changes under `src/` take effect immediately.
+If the dependencies change, run `pip install -e .` again.
+
+PyFoam calls OpenFOAM's utilities, so OpenFOAM must be on the path whenever
+PyFoam runs. Open an OpenFOAM shell from the activated env:
 
 ```bash
 conda activate cfd
-openfoam                            # opens a shell with OpenFOAM + the cfd env
+openfoam            # macOS app; on Linux, source OpenFOAM's etc/bashrc instead
 ```
 
 All commands below are run from inside that shell, in a case-group
@@ -106,9 +126,34 @@ You can pass more than one `--parameter-file`; later files win.
 
 ```bash
 cd cases/<name>
-pimpleFoam > log.pimpleFoam                 # plain
-pyFoamPlotRunner.py --progress pimpleFoam   # with live residual plots
+pimpleFoam > log.pimpleFoam
 ```
+
+Use `python -m cfdtools.monitor` (below) to watch it. PyFoam's own
+`pyFoamPlotRunner.py` isn't used: on macOS its plotting is broken, and it
+fills the case with state files.
+
+### Monitor a run
+
+In a second terminal (same env), while the solver runs:
+
+```bash
+python -m cfdtools.monitor cases/<name>              # refreshes every 5 s
+python -m cfdtools.monitor cases/<name> -r 2         # every 2 s
+python -m cfdtools.monitor cases/<name> --save m.png # one snapshot, no window
+```
+
+It plots every `postProcessing/*/*.dat` file: initial residuals (from the
+`residuals` solverInfo output) on a log scale, and the torque/force on the bob.
+It is a portable stand-in for OpenFOAM's `foamMonitor`, which on macOS needs
+X11, gnuplot and GNU coreutils. For this transient case, the flow is fully
+developed once the torque levels off. The residuals only show that each time
+step was solved.
+
+Re-running the solver in the same case does not overwrite `postProcessing/`.
+OpenFOAM adds new files beside the old ones (`moment_0.dat`, ...). The monitor
+shows only the latest run, plus the earlier part of a restarted run. To delete
+old output, `rm -rf postProcessing` before re-running.
 
 Results: time directories, and `postProcessing/bobTorque/0/moment.dat` for
 the torque on the bob. For ParaView, open `<name>.foam`.
@@ -180,3 +225,11 @@ are found whether the case is in `cases/`, `base/` or a sweep directory.
 | Group | Base | Mesh | Solver | Patches |
 |---|---|---|---|---|
 | couette_ideal | annulus2D | `geometry/annulus.py`, 2D r-theta, optional eccentricity | pimpleFoam, laminar, Newtonian | `innerWall` (rotating), `outerWall`, `frontAndBack` (empty) |
+
+Meshes (`*.msh`) are not tracked. Every case rebuilds its mesh from the
+geometry scripts, and `python geometry/annulus.py --help` shows how to make
+one by hand.
+
+## License
+
+MIT; see [LICENSE](LICENSE).
