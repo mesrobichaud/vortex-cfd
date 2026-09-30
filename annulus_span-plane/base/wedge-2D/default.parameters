@@ -22,6 +22,6 @@ rho_kg_m3           1050.0;     // density
 speed_rpm           100.0;      // bob speed; positive is counter-clockwise about +z
 
 // --- Time control (s) -------------------------------------------------------
-endTime             2.0;
+endTime             0.2;
 deltaT              1e-4;
-writeInterval       0.1;
+writeInterval       0.01;

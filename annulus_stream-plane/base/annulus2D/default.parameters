@@ -1,0 +1,27 @@
+// Parameters for the 2D r-theta annulus (couette_ideal).
+//
+// Lab units throughout; derivedParameters.py converts to SI. Override any of
+// these per run with --parameter-file=... or --values-string="{...}" rather
+// than editing this file.
+
+// --- Rig geometry -----------------------------------------------------------
+Ri_mm               10.0;       // inner (rotating bob) radius
+Ro_mm               10.5;       // outer (stationary cup) radius
+eccentricity_mm     0.0;        // bob axis offset along +x
+
+// --- Mesh (see geometry/annulus.py) -----------------------------------------
+nr                  20;         // radial cells across the gap
+na                  20;         // azimuthal cells per quadrant
+bump                1.0;        // radial clustering; <1 clusters to both walls
+
+// --- Fluid ------------------------------------------------------------------
+mu_mPa_s            3.5;        // dynamic viscosity
+rho_kg_m3           1050.0;     // density
+
+// --- Operating point --------------------------------------------------------
+speed_rpm           100.0;      // bob speed; positive is counter-clockwise about +z
+
+// --- Time control (s) -------------------------------------------------------
+endTime             0.2;
+deltaT              1e-4;
+writeInterval       0.01;
