@@ -11,8 +11,12 @@ requires-python = ">=3.10"
 dependencies = [
     "gmsh>=4.15,<5",      # Python API + bundled gmsh binary
     "PyFoam>=2026.6",
-    "matplotlib",         # cfdtools.monitor
+    "matplotlib",         # cfdtools.monitor, cfdtools.post
+    "pyvista",            # cfdtools.post: reads OpenFOAM cases
 ]
+
+[project.optional-dependencies]
+notebook = ["ipykernel"]          # run the example notebooks: pip install -e ".[notebook]"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -17,6 +17,9 @@ CFD/
     mesh.py                   gmsh cell-count and sizing helpers
     units.py                  unit conversion to SI (rpm, mm, mPa.s, nu = mu/rho)
     monitor.py                live plots of a running case
+    post.py                   read results and plot fields and profiles (matplotlib)
+    pv.py                     open a case in ParaView with a publication view (python -m cfdtools.pv)
+    paraview_view.py          the ParaView view used by pv.py (runs inside ParaView)
 
   geometry/                   gmsh mesh builders, shared by all base cases
     common.py                 device dimensions used by the builders
@@ -24,8 +27,9 @@ CFD/
     wedge.py                  axisymmetric r-z wedge  (annulus_span-plane)
 
   annulus_stream-plane/       base case: annular gap in the r-theta plane
-    base/annulus-2D/           case template
+    base/annulus-2D/          case template
     studies/                  parameter files for named runs and sweeps
+    post/                     figure scripts and example notebook for this base case
     cases/                    generated cases (not tracked by git)
 
   annulus_span-plane/         base case: annular gap in the r-z plane
@@ -45,6 +49,7 @@ share one set of dimensions.
 | `geometry/` | Mesh builders and device dimensions | The geometry or mesh |
 | `<base case>/base/<template>/` | Boundary conditions, models, schemes, solver settings, outputs | The physics or numerics |
 | `<base case>/studies/` | Parameter files | The values to run |
+| `<base case>/post/` | Figure scripts | The figures |
 | `<base case>/cases/` | Generated cases | Nothing: regenerate instead |
 
 Anything you want to keep goes in `base/` or `studies/`. Cases can be
@@ -230,6 +235,60 @@ reconstructPar                                # merge processor*/ back into time
 
 Parallel runs are only faster for large meshes: at least about 20,000 cells
 per process. On Apple silicon, start with one process per performance core.
+
+### 8. Figures
+
+ParaView (open `<name>.foam`) is for looking at results. For figures in a
+paper, use the scripts in `post/`, which use `cfdtools.post`:
+
+```bash
+python post/couette_figure.py cases/<name>                 # writes cases/<name>/figures/couette.pdf and .png
+python post/couette_figure.py cases/<name> --time 0.1 -o fig.pdf
+```
+
+`couette_figure.py` (annulus-2D) draws:
+
+- (a) velocity magnitude on the mesh cells, with the annulus unrolled
+  (angle against radius) so the gap is visible;
+- (b) tangential velocity across the gap. For a concentric case: cell values
+  against the analytical Couette solution. For an eccentric case: profiles
+  at the narrowest and widest gap.
+
+To open a case in ParaView with a publication view already set up (white
+background, parallel projection, no orientation axes, flat colours, the
+Cool to Warm colour map, a colour bar, camera along the mesh's thin direction):
+
+```bash
+python -m cfdtools.pv cases/<name>                 # ParaView window
+python -m cfdtools.pv                              # from inside a case folder
+python -m cfdtools.pv cases/<name> --save          # image only, no window: cases/<name>/figures/paraview_U.png
+python -m cfdtools.pv cases/<name> --save --field p --time 0.1 --range 0 0.1 --size 3000 2000 -o fig.png
+```
+
+It looks for ParaView in `$PARAVIEW_BIN` (a folder containing `paraview` and
+`pvbatch`), then on the `PATH`, then in `/Applications/ParaView-*.app` on
+macOS. The view is defined in `src/cfdtools/paraview_view.py`, which runs in
+ParaView's own Python.
+
+`annulus_stream-plane/post/post_examples.ipynb` shows each `cfdtools.post`
+function on a case, including time histories from `postProcessing/`. To run
+notebooks, install the kernel once with `pip install -e ".[notebook]"`, then
+select the `cfd` environment's Python as the kernel.
+
+`cfdtools.post` functions for writing other figure scripts:
+
+| Function | Does |
+|---|---|
+| `read_case(case, time="latest")` | Reads the mesh and cell fields at one saved time (via pyvista) |
+| `case_parameters(case)` | Returns the parameter values the case was built with |
+| `use_style()` | Sets matplotlib defaults for print figures |
+| `plot_field(ax, mesh, "U", which="mag")` | Draws a field on the cells of a 2D mesh; `transform=` maps coordinates, e.g. to unroll an annulus |
+| `sample_line(mesh, start, end, "U")` | Samples a field along a line, linearly interpolated between cells |
+| `cell_centres(mesh)`, `cell_vertices(mesh)` | Cell geometry |
+
+`sample_line` interpolates between cell centres, so values within half a
+cell of a wall are not exact (e.g. the velocity at the bob surface reads
+slightly below the wall speed). Use cell values when that matters.
 
 ## Editing a case template
 
