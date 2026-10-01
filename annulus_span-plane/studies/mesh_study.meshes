@@ -1,0 +1,8 @@
+// Meshes for studies/mesh_study.sh, run coarse to fine in this order.
+// Each mesh starts from the solution of the mesh above it.
+// Refinement ratio 1.5 in every direction (required for the GCI).
+//
+// name     nr_gap  nr_core  nz_ann  nz_bot
+coarse      20      100      150     30
+medium      30      150      225     45
+fine        45      225      338     68

@@ -21,33 +21,43 @@ solvers
         solver          GAMG;
         smoother        GaussSeidel;
         tolerance       1e-7;
-        relTol          0.01;
+        relTol          0.1;
     }
 
-    pFinal
-    {
-        $p;
-        relTol          0;
-    }
-
-    "(U|UFinal)"
+    U
     {
         solver          smoothSolver;
         smoother        symGaussSeidel;
         tolerance       1e-8;
-        relTol          0;
+        relTol          0.1;
     }
 }
 
-PIMPLE
+SIMPLE
 {
-    nOuterCorrectors            1;
-    nCorrectors                 2;
     nNonOrthogonalCorrectors    1;
+    consistent                  yes;    // SIMPLEC
+
+    // Stop before maxIterations once the initial residuals fall below these.
+    residualControl
+    {
+        p                       1e-6;
+        U                       1e-6;
+    }
 
     // Closed domain: no patch fixes the pressure level.
     pRefCell                    0;
     pRefValue                   0;
+}
+
+// SIMPLEC (consistent yes): pressure is not relaxed.
+relaxationFactors
+{
+    equations
+    {
+        U                       0.9;
+        ".*"                    0.9;
+    }
 }
 
 // ************************************************************************* //

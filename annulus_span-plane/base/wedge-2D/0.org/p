@@ -21,17 +21,14 @@ internalField   uniform 0;
 
 boundaryField
 {
-    innerWall
+    "(rotorSide|rotorBottom|cupWall|cupBottom|top)"
     {
         type            zeroGradient;
     }
-    outerWall
+
+    "(front|back)"
     {
-        type            zeroGradient;
-    }
-    frontAndBack
-    {
-        type            empty;
+        type            wedge;
     }
 }
 

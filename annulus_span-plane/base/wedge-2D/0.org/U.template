@@ -20,20 +20,30 @@ internalField   uniform (0 0 0);
 
 boundaryField
 {
-    innerWall
+    // Bob: side and bottom face, rotating about the z axis.
+    "(rotorSide|rotorBottom)"
     {
         type            rotatingWallVelocity;
-        origin          (|-ecc-| 0 0);
+        origin          (0 0 0);
         axis            (0 0 1);
         omega           |-omega-|;
     }
-    outerWall
+
+    // Cup: stationary.
+    "(cupWall|cupBottom)"
     {
         type            noSlip;
     }
-    frontAndBack
+
+    // Fluid surface, modelled as flat and free of shear.
+    top
     {
-        type            empty;
+        type            slip;
+    }
+
+    "(front|back)"
+    {
+        type            wedge;
     }
 }
 

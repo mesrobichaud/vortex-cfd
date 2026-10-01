@@ -1,0 +1,5 @@
+// Settings shared by every case in the rpm sweep (studies/rpm_sweep.sh).
+// Overrides base/wedge-2D/default.parameters. speed_rpm comes from
+// rpm_sweep.speeds.
+
+maxIterations       30000;      // cases near Taylor-vortex onset converge slowly

@@ -1,0 +1,6 @@
+// Settings shared by every mesh in the mesh study (studies/mesh_study.sh).
+// Overrides base/wedge-2D/default.parameters. The mesh counts come from
+// mesh_study.meshes.
+
+speed_rpm           800;        // top of the rpm sweep: the hardest case to resolve
+maxIterations       60000;      // finer meshes need more iterations

@@ -14,7 +14,7 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-application     pimpleFoam;
+application     simpleFoam;
 
 startFrom       startTime;
 
@@ -22,11 +22,13 @@ startTime       0;
 
 stopAt          endTime;
 
-endTime         |-endTime-|;
+// Steady: one time step is one iteration. The run stops before
+// maxIterations once the residualControl limits in fvSolution are met.
+endTime         |-maxIterations-|;
 
-deltaT          |-deltaT-|;
+deltaT          1;
 
-writeControl    adjustableRunTime;
+writeControl    timeStep;
 
 writeInterval   |-writeInterval-|;
 
@@ -54,18 +56,43 @@ functions
         fields          (U p);
     }
 
-    // Torque on the bob about its own axis. The mesh is one cell thick in z,
-    // so this is torque over the mesh thickness, not per unit length.
-    bobTorque
+    // Torque on the bob about the z axis, side and bottom face separately.
+    // The mesh is a wedge of |-angle_deg-| degrees: multiply by
+    // |-wedge_to_full-| (parameter wedge_to_full) for the full device.
+    rotorSideTorque
     {
         type            forces;
         libs            (forces);
         writeControl    timeStep;
         writeInterval   10;
-        patches         (innerWall);
+        patches         (rotorSide);
         rho             rhoInf;
         rhoInf          |-rho_kg_m3-|;
-        CofR            (|-ecc-| 0 0);
+        CofR            (0 0 0);
+    }
+
+    rotorBottomTorque
+    {
+        type            forces;
+        libs            (forces);
+        writeControl    timeStep;
+        writeInterval   10;
+        patches         ("rotorBottom");    // regex: matches nothing when Hb = 0
+        rho             rhoInf;
+        rhoInf          |-rho_kg_m3-|;
+        CofR            (0 0 0);
+    }
+
+    // Wall shear stress on the bob, written as a field (wallShearStress) with
+    // every saved time. Kinematic (m^2/s^2): multiply by rho = |-rho_kg_m3-|
+    // for Pa.
+    bobWallShear
+    {
+        type            wallShearStress;
+        libs            (fieldFunctionObjects);
+        patches         (rotorSide "rotorBottom");
+        writeControl    writeTime;
+        log             false;
     }
 }
 

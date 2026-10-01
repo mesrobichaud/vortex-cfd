@@ -1,18 +1,28 @@
-// Parameters for the 2D r-theta annulus (couette_ideal).
+// Parameters for the axisymmetric r-z wedge (annulus_span-plane).
 //
 // Lab units throughout; derivedParameters.py converts to SI. Override any of
 // these per run with --parameter-file=... or --values-string="{...}" rather
 // than editing this file.
+//
+// Axisymmetric: the bob and cup share the z axis. Eccentricity cannot be
+// represented in this model.
 
-// --- Rig geometry -----------------------------------------------------------
-Ri_mm               10.0;       // inner (rotating bob) radius
-Ro_mm               10.5;       // outer (stationary cup) radius
-eccentricity_mm     0.0;        // bob axis offset along +x
+// --- Geometry ---------------------------------------------------------------
+Ri_mm               5.5;        // bob radius
+Ro_mm               6.35;       // cup radius
+H_mm                15.0;       // immersed height of the annular gap
+Hb_mm               1.0;        // gap between bob bottom and cup bottom, at the axis; 0 = no bottom gap
+edge_radius_mm      0.1;        // fillet at the bob's bottom edge; 0 = sharp corner (needs Hb_mm > 0)
+bottom_angle_deg    1.5;        // slope of the bob's bottom face; + = tip down at the axis, 0 = flat
+angle_deg           5.0;        // wedge opening angle
 
-// --- Mesh (see geometry/annulus.py) -----------------------------------------
-nr                  20;         // radial cells across the gap
-na                  20;         // azimuthal cells per quadrant
-bump                1.0;        // radial clustering; <1 clusters to both walls
+// --- Mesh (see geometry/wedge.py) -------------------------------------------
+nr_gap              20;         // radial cells across the annular gap
+nr_core             100;        // radial cells from the axis to Ri (bottom gap only)
+nz_ann              150;        // axial cells up the annular gap
+nz_bot              30;         // axial cells across the bottom gap
+bump_r              1.0;        // radial clustering across the gap; <1 clusters to both walls
+bump_z              1.0;        // axial clustering across the bottom gap; <1 clusters to both walls
 
 // --- Fluid ------------------------------------------------------------------
 mu_mPa_s            3.5;        // dynamic viscosity
@@ -21,7 +31,6 @@ rho_kg_m3           1050.0;     // density
 // --- Operating point --------------------------------------------------------
 speed_rpm           100.0;      // bob speed; positive is counter-clockwise about +z
 
-// --- Time control (s) -------------------------------------------------------
-endTime             0.2;
-deltaT              1e-4;
-writeInterval       0.01;
+// --- Iteration control (simpleFoam) -----------------------------------------
+maxIterations       5000;       // upper limit; the run stops earlier once residualControl is met
+writeInterval       500;        // iterations between saved fields

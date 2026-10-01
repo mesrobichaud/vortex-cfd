@@ -1,6 +1,6 @@
 #!/bin/sh
 # Mesh step, run by pyFoamPrepareCase.py from the case directory.
-# gmsh (geometry/annulus.py) -> MSH 2 -> gmshToFoam -> patch types.
+# gmsh (geometry/wedge.py) -> MSH 2 -> gmshToFoam -> patch types.
 set -e
 
 # Find the mesh builders: the first geometry/ folder in this directory or a
@@ -11,15 +11,25 @@ while [ ! -d "$root/geometry" ]; do
     root=$(dirname "$root")
 done
 
-python "$root/geometry/annulus.py" -o annulus.msh \
-    --Ri |-Ri-| --Ro |-Ro-| --eccentricity |-ecc-| \
-    --nr |-nr-| --na |-na-| --bump |-bump-|
+python "$root/geometry/wedge.py" -o wedge.msh \
+    --Ri |-Ri-| --Ro |-Ro-| --height |-H-| --bottom-gap |-Hb-| \
+    --angle |-angle_deg-| --edge-radius |-edge_radius-| --bottom-angle |-bottom_angle_deg-| \
+    --nr-gap |-nr_gap-| --nr-core |-nr_core-| --nz-ann |-nz_ann-| --nz-bot |-nz_bot-| \
+    --bump-r |-bump_r-| --bump-z |-bump_z-|
 
-gmshToFoam annulus.msh
+gmshToFoam wedge.msh
 
-# gmshToFoam writes every patch as type 'patch'.
-pyFoamChangeBoundaryType.py . frontAndBack empty
-pyFoamChangeBoundaryType.py . innerWall wall
-pyFoamChangeBoundaryType.py . outerWall wall
+# gmshToFoam writes every patch as type 'patch'. The two wedge planes must be
+# type 'wedge' for OpenFOAM to treat the case as axisymmetric.
+pyFoamChangeBoundaryType.py . front wedge
+pyFoamChangeBoundaryType.py . back wedge
+pyFoamChangeBoundaryType.py . rotorSide wall
+pyFoamChangeBoundaryType.py . cupWall wall
+pyFoamChangeBoundaryType.py . cupBottom wall
+
+# rotorBottom only exists when there is a bottom gap (Hb_mm > 0).
+if grep -q "^ *rotorBottom$" constant/polyMesh/boundary; then
+    pyFoamChangeBoundaryType.py . rotorBottom wall
+fi
 
 checkMesh
