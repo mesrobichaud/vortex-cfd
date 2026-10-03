@@ -17,5 +17,5 @@ from cfdtools.mesh import (  # noqa: F401  (re-exported)
 # Rig geometry. Single source of truth for every builder here, so an r-theta
 # mesh and an r-z mesh cannot drift into describing different hardware.
 # ---------------------------------------------------------------------------
-DEF_RI = 0.010     # inner (rotating bob) radius, m
-DEF_RO = 0.0105    # outer (stationary cup) radius, m
+DEF_RI = 0.0055     # inner (rotating bob) radius, m
+DEF_RO = 0.00635    # outer (stationary cup) radius, m

@@ -141,18 +141,23 @@ ones. `--automatic-casename` names the case after the parameter files.
 
 ### 3. Run
 
+Run the solver named by `application` in the case's `system/controlDict` (see
+[Base cases](#base-cases)):
+
 ```bash
 cd cases/<name>
-pimpleFoam > log.pimpleFoam
+pimpleFoam > log.pimpleFoam       # transient, e.g. annulus-2D
+simpleFoam > log.simpleFoam       # steady, e.g. wedge-2D
 ```
 
 Results:
 
-- Time folders (`0.01/`, `0.02/`, ...): full fields, saved every
-  `writeInterval`.
+- Time folders: full fields, saved every `writeInterval`. A transient solver
+  names them by time (`0.01/`, `0.02/`, ...). A steady solver names them by
+  iteration (`500/`, `1000/`, ...) and writes the last iteration when it stops.
 - `postProcessing/`: time histories, e.g. `bobTorque/0/moment.dat` (torque
   on the bob) and `residuals/0/solverInfo.dat`.
-- `log.pimpleFoam`: the solver log.
+- `log.<solver>`: the solver log.
 
 Open `<name>.foam` in ParaView to view the fields.
 
@@ -164,15 +169,24 @@ In a second terminal, with the same environment active:
 python -m cfdtools.monitor cases/<name>              # refresh every 1 s
 python -m cfdtools.monitor cases/<name> -r 5         # refresh every 5 s
 python -m cfdtools.monitor cases/<name> -c 2         # two plots per row
+python -m cfdtools.monitor cases/<name> -n 2000      # only the last 2000 iterations (or seconds)
 python -m cfdtools.monitor cases/<name> --save m.png # save one image and exit
+python -m cfdtools.monitor cases/rpm_sweep          # a folder of cases: follow the running one
 ```
+
+The path can be relative to wherever you run the monitor. Given a folder of
+cases (a sweep or mesh study), the monitor shows the case whose
+`postProcessing` files changed most recently, and switches when the next case
+starts. The case shown is in the title.
 
 The monitor plots every `postProcessing/*/*.dat` file. Residuals are shown
 on a log scale. Columns that are negligible compared with the largest one in
 the same file (e.g. x and y torque in a 2D case) are left out.
 
-For these transient cases, the flow is fully developed when the torque
-stops changing. Residuals only show that each time step converged.
+For transient cases (`pimpleFoam`), the flow is fully developed when the
+torque stops changing; residuals only show that each time step converged.
+For steady cases (`simpleFoam`), check that the residuals have fallen and the
+torque has stopped changing.
 
 PyFoam's `pyFoamPlotRunner.py` and OpenFOAM's `foamMonitor` are not used.
 On macOS, PyFoam's plotting does not work and `foamMonitor` needs X11,
@@ -220,10 +234,115 @@ for e in 0.0 0.1 0.2 0.3 0.4; do
 done
 ```
 
-PyFoam also has `pyFoamRunParameterVariation.py base/annulus-2D
-studies/<sweep>.variations`. A `.variations` file is an OpenFOAM dictionary
-with a `values` subdictionary that lists the values of each parameter, and
-it must include a `solver` entry, e.g. `solver (pimpleFoam);`. See `--help`.
+#### Sweep with continuation (`annulus_span-plane/studies/rpm_sweep.sh`)
+
+Each speed starts from the converged solution of the previous speed, the way
+the flow develops when the speed is increased slowly. This matters above
+Taylor-vortex onset, where more than one steady solution can exist. The
+sweep is defined by three files in `studies/`:
+
+| File | Contents |
+|---|---|
+| `rpm_sweep.speeds` | Speeds in rpm, one per line, run in the order listed |
+| `rpm_sweep.parameters` | Settings shared by every case, e.g. `maxIterations` and the mesh |
+| `rpm_sweep.sh` | The script that builds and runs the cases |
+
+Run from `annulus_span-plane/` in the OpenFOAM shell:
+
+```bash
+bash studies/rpm_sweep.sh
+```
+
+For each speed, the script:
+
+1. builds `cases/rpm_sweep/rpm_<speed>` from `base/wedge-2D` with the
+   `.parameters` file and that speed;
+2. copies the previous case's solution into the new case's `0/` with
+   `mapFields` (the first speed starts from rest). The new case keeps its own
+   boundary conditions, so the rotating wall uses the new speed;
+3. runs `simpleFoam`, and stops the sweep if it fails or does not converge
+   within `maxIterations`.
+
+- A case that already exists and converged is skipped and used as the
+  starting point for the next speed. Running the script again continues the
+  sweep, e.g. after adding speeds to the end of `rpm_sweep.speeds`.
+- To redo a case, move it to the Trash and run the script again. Every case
+  after it started from the old result, so move those to the Trash as well.
+- Logs in each case: `log.prepareCase`, `log.mapFields` (names the source
+  case), `log.simpleFoam`.
+
+PyFoam's `pyFoamRunParameterVariation.py` can also build and run a sweep from
+a `.variations` file, but every case then starts from rest.
+
+#### Mesh study (`annulus_span-plane/studies/mesh_study.sh`)
+
+Run before a sweep to choose its mesh. The study runs one speed (the top
+speed of the sweep, the hardest case to resolve) on three meshes, each with
+1.5x the cells of the previous one in every direction.
+
+| File | Contents |
+|---|---|
+| `mesh_study.meshes` | One mesh per line: name, `nr_gap`, `nr_core`, `nz_ann`, `nz_bot`, run coarse to fine |
+| `mesh_study.parameters` | Settings shared by every mesh: `speed_rpm`, `maxIterations` |
+| `mesh_study.sh` | The script that builds and runs the cases |
+
+```bash
+bash studies/mesh_study.sh
+```
+
+It works like `rpm_sweep.sh`, with cases in `cases/mesh_study/<mesh name>`.
+Each finer mesh starts from the coarser mesh's solution (`mapFields`
+interpolates between the meshes), so all meshes stay on the same vortex
+solution.
+
+Compare on each mesh:
+
+- the torque on the bob side and bottom;
+- the number of sign changes of the radial velocity up the middle of the gap,
+  which must be the same on every mesh (the same vortex pattern);
+- the peak radial velocity (vortex strength);
+- the peak wall shear stress on the bob (from the `wallShearStress` field).
+
+```python
+from pathlib import Path
+import numpy as np
+from cfdtools import post
+from cfdtools.monitor import find_series, read_dat
+from cfdtools.convergence import gci
+
+names = ["coarse", "medium", "fine"]
+cells, torque = [], []
+for name in names:
+    case = Path("cases/mesh_study") / name
+    p = post.case_parameters(case)
+    k, rho = float(p["wedge_to_full"]), float(p["rho_kg_m3"])
+    mesh, _ = post.read_case(case)
+    s = find_series(case)
+    T = read_dat(s["rotorSideTorque/moment"])["total_z"][-1] * k
+
+    r_mid = 0.5 * (float(p["Ri"]) + float(p["Ro"]))
+    z0, z1 = mesh.bounds[4], mesh.bounds[5]
+    _, ur = post.sample_line(mesh, (r_mid, 0, z0), (r_mid, 0, z1), "U", which="x", n=2000)
+    sign_changes = np.count_nonzero(np.diff(np.sign(ur)))
+
+    side, _ = post.read_patch(case, "rotorSide")
+    tau_max = np.linalg.norm(side.cell_data["wallShearStress"], axis=1).max() * rho
+
+    print(f"{name}: {mesh.n_cells} cells, T = {T:.5e} N m, sign changes = {sign_changes}, "
+          f"max |u_r| = {abs(ur).max():.4e} m/s, max tau = {tau_max:.4g} Pa")
+    cells.append(mesh.n_cells)
+    torque.append(T)
+
+print(gci(torque, cells))       # dim=2 for the wedge
+```
+
+`gci()` (in `cfdtools.convergence`) applies the Grid Convergence Index
+procedure of Celik et al. (2008), *J. Fluids Eng.* 130, 078001. It returns
+the observed order `p`, the `extrapolated` zero-cell-size value, and
+`gci_fine`, the relative uncertainty of the fine-mesh value. Use the coarsest
+mesh whose value is within your tolerance of the extrapolated value, and put
+its counts in `rpm_sweep.parameters`. If `oscillatory` is `True`, the values
+go up and down with refinement, and the GCI is unreliable: add a finer mesh.
 
 ### 7. Parallel runs
 
@@ -356,7 +475,7 @@ slightly below the wall speed). Use cell values when that matters.
 | Base case | Template | Mesh | Solver | Patches | Status |
 |---|---|---|---|---|---|
 | `annulus_stream-plane` | `annulus-2D` | `geometry/annulus.py`: 2D r-theta annulus, optional eccentricity | pimpleFoam, laminar, Newtonian | `innerWall` (rotating), `outerWall`, `frontAndBack` (empty) | Working |
-| `annulus_span-plane` | `wedge-2D` | `geometry/wedge.py`: axisymmetric r-z wedge | pimpleFoam, laminar, Newtonian | `front`, `back` (wedge), `rotorSide`, `rotorBottom`, `cupWall`, `cupBottom`, `top` | Not set up: currently a copy of `annulus-2D` |
+| `annulus_span-plane` | `wedge-2D` | `geometry/wedge.py`: axisymmetric r-z wedge (5°), optional bottom gap | simpleFoam (SIMPLEC), laminar, Newtonian | `rotorSide`, `rotorBottom` (rotating), `cupWall`, `cupBottom`, `top` (slip), `front`, `back` (wedge) | Working. No eccentricity (axisymmetric). Torques are for the wedge; multiply by `wedge_to_full` |
 
 Mesh files (`*.msh`) are not tracked by git. Each case builds its own mesh.
 To build one directly, from the repository root, run e.g.

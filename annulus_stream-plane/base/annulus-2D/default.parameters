@@ -5,8 +5,8 @@
 // than editing this file.
 
 // --- Rig geometry -----------------------------------------------------------
-Ri_mm               10.0;       // inner (rotating bob) radius
-Ro_mm               10.5;       // outer (stationary cup) radius
+Ri_mm               5.5;       // inner (rotating bob) radius
+Ro_mm               6.35;       // outer (stationary cup) radius
 eccentricity_mm     0.0;        // bob axis offset along +x
 
 // --- Mesh (see geometry/annulus.py) -----------------------------------------

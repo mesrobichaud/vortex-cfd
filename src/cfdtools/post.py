@@ -120,6 +120,28 @@ def read_case(case, time="latest"):
     return mesh, t
 
 
+def read_patch(case, patch, time="latest"):
+    """Read one boundary patch and its face fields at one saved time, e.g.
+    read_patch(case, "rotorSide") for the wallShearStress on the bob.
+
+    Returns (patch mesh, time), as read_case. Face values are cell data.
+    """
+    import pyvista as pv
+
+    reader = pv.OpenFOAMReader(str(_foam_file(case)))
+    reader.cell_to_point_creation = False
+    reader.enable_all_patch_arrays()
+    times = reader.time_values
+    if not times:
+        raise ValueError(f"no saved times in {case}")
+    t = times[-1] if time == "latest" else min(times, key=lambda v: abs(v - float(time)))
+    reader.set_active_time_value(t)
+    boundary = reader.read()["boundary"]
+    if patch not in boundary.keys():
+        raise KeyError(f"patch {patch!r} not in {case}; patches: {list(boundary.keys())}")
+    return boundary[patch], t
+
+
 def case_parameters(case):
     """Parameter values the case was built with (PyFoamPrepareCaseParameters),
     as a dict. Includes the derived SI values from derivedParameters.py."""

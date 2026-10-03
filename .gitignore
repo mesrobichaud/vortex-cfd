@@ -14,5 +14,10 @@
 # Editor setup (machine-specific: conda + macOS openfoam app)
 .vscode/
 
+# hiding notebooks relevant to my own work 
+full-geometry/
+design-deviations.ipynb
+geometry/full3d.py
+
 # Hiding license temporarily 
 LICENSE

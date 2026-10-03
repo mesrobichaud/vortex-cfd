@@ -25,6 +25,29 @@ Geometry, with bottom_gap > 0 -- the L-shaped domain:
 With bottom_gap = 0 the foot disappears and the domain is the plain annular
 rectangle Ri <= r <= Ro, 0 <= z <= H.
 
+Bob shape (bottom_gap > 0 only):
+  bottom_angle  slope of the bob's bottom face from horizontal, degrees. The
+                face is a cone z = hb + r*tan(angle): positive puts the tip
+                at the axis pointing down, negative gives a recess, 0 is flat.
+                bottom_gap (hb) is the clearance at the axis.
+  edge_radius   fillet between the bob's side and bottom face, tangent to
+                both. 0 keeps the sharp corner. The fillet surface belongs to
+                the rotorBottom patch.
+The annulus height H is measured from the sharp-corner height
+z_edge = hb + Ri*tan(angle), so changing the fillet does not move the top.
+
+    With a fillet, a fourth block D sits between the upper half of the arc
+    and the cup wall. The arc is split at its midpoint M; the lower half is
+    part of block A:
+
+            |          |  C      |
+            |       T1 +---------+  z = z_t1
+            |          )    D    |
+            |        M +---------+  z = z_m
+            +------T2  |         |
+            |   A      |    B    |
+            +----------+---------+  z = 0
+
 The cross-section is drawn in the x-z plane (x = r), rotated by -angle/2 about
 z, then revolved through +angle. That leaves the two end planes symmetric about
 y = 0, which is what OpenFOAM's 'wedge' patch type requires.
@@ -84,6 +107,8 @@ DEF_NR_GAP = 20        # radial cells across the annular gap
 DEF_NR_CORE = 100      # radial cells from the axis to Ri, bottom gap only
 DEF_NZ_ANN = 150       # axial cells up the annulus
 DEF_NZ_BOT = 30        # axial cells across the bottom gap
+DEF_EDGE_RADIUS = 0.0  # fillet radius at the bob's bottom edge; 0 = sharp, m
+DEF_BOTTOM_ANGLE = 0.0 # slope of the bob's bottom face; 0 = flat, degrees
 
 
 def build_wedge(
@@ -93,10 +118,13 @@ def build_wedge(
     bottom_gap=DEF_HB,
     r_axis=0.0,
     angle=DEF_ANGLE,
+    edge_radius=DEF_EDGE_RADIUS,
+    bottom_angle=DEF_BOTTOM_ANGLE,
     nr_gap=None,
     nr_core=None,
     nz_ann=None,
     nz_bot=None,
+    n_edge=None,
     max_size=None,
     max_size_r=None,
     max_size_z=None,
@@ -114,13 +142,21 @@ def build_wedge(
     Ri, Ro : float
         Inner (rotating bob) and outer (stationary cup) radii, metres.
     H : float
-        Height of the annular section, from the bob's bottom face to the top of
-        the fluid, metres.
+        Height of the annular section, from the bob's sharp-corner height
+        z_edge = bottom_gap + Ri*tan(bottom_angle) to the top of the fluid,
+        metres.
     bottom_gap : float
-        Clearance between the bob's bottom face and the cup floor, metres. Zero
-        removes the foot entirely and leaves a plain annular rectangle, which
-        reproduces the fully developed case and is the baseline to difference
-        the end effect against.
+        Clearance between the bob's bottom face and the cup floor at the axis,
+        metres. Zero removes the foot entirely and leaves a plain annular
+        rectangle, which reproduces the fully developed case and is the
+        baseline to difference the end effect against.
+    edge_radius : float
+        Fillet radius between the bob's side and bottom face, metres. 0 keeps
+        the sharp corner. Requires bottom_gap > 0.
+    bottom_angle : float
+        Slope of the bob's bottom face from horizontal, degrees. Positive is a
+        cone with its tip at the axis pointing down; negative is a recess.
+        Requires bottom_gap > 0.
     r_axis : float
         Inner radius of the bottom-gap block. Zero (the default) is the
         physical flat-bottomed bob: the fluid reaches the axis and the wedge
@@ -135,6 +171,9 @@ def build_wedge(
         DEF_* constant.
     nz_ann, nz_bot : int or None
         Axial cells up the annulus, and across the bottom gap.
+    n_edge : int or None
+        Cells along the fillet arc (edge_radius > 0 only). None matches the
+        radial cell size in the gap.
     max_size : float or None
         Target upper bound on cell size, metres, in every direction at once.
         Counts are rounded up, so the achieved size is at or below this. Note
@@ -170,6 +209,12 @@ def build_wedge(
         raise ValueError(f"r_axis must satisfy 0 <= r_axis < Ri={Ri}; got {r_axis}")
     if not 0.0 < angle < 180.0:
         raise ValueError(f"wedge angle must be in (0, 180) degrees; got {angle}")
+    if edge_radius < 0.0:
+        raise ValueError(f"edge_radius must be >= 0; got {edge_radius}")
+    if not -45.0 < bottom_angle < 45.0:
+        raise ValueError(f"bottom_angle must be in (-45, 45) degrees; got {bottom_angle}")
+    if bottom_gap == 0.0 and (edge_radius > 0.0 or bottom_angle != 0.0):
+        raise ValueError("edge_radius and bottom_angle need a bottom gap (bottom_gap > 0)")
 
     gap = Ro - Ri
     has_bottom = bottom_gap > 0.0
@@ -192,7 +237,55 @@ def build_wedge(
 
     half = math.radians(angle) / 2.0
     hb = bottom_gap if has_bottom else 0.0
-    z_top = hb + H
+
+    # Bob bottom: the cone z = hb + r*tan(slope), meeting the side r = Ri at
+    # the sharp-corner height z_edge. The fillet (radius rf, centre (rc, zc))
+    # replaces that corner. It touches the side at T1 = (Ri, z_t1) and the
+    # bottom at T2 = (r_t2, z_t2). With rf = 0 both are the sharp corner.
+    slope = math.radians(bottom_angle)
+    tan_s, sin_s, cos_s = math.tan(slope), math.sin(slope), math.cos(slope)
+    rf = edge_radius
+    z_edge = hb + Ri * tan_s
+    rc = Ri - rf
+    zc = z_edge + rf * (1.0 - sin_s) / cos_s
+    r_t2 = rc + rf * sin_s
+    z_t2 = zc - rf * cos_s
+    z_t1 = zc
+    z_top = z_edge + H
+    # Midpoint M of the arc: halfway between the directions from the centre
+    # to T2 (slope - 90 deg) and to T1 (0 deg).
+    theta_m = (slope - math.pi / 2.0) / 2.0
+    r_m = rc + rf * math.cos(theta_m)
+    z_m = zc + rf * math.sin(theta_m)
+
+    if has_bottom:
+        if r_t2 <= r_axis:
+            raise ValueError(f"edge_radius={rf} is too large: the fillet reaches r_axis")
+        # Lowest point of the bob: the bottom of the fillet circle when it lies
+        # on the arc (recess), otherwise T2 (the sharp corner when rf = 0).
+        z_low = min(hb + r_axis * tan_s, zc - rf if slope < 0.0 else z_t2)
+        if z_low <= 0.0:
+            raise ValueError("the bob reaches the cup floor: increase bottom_gap "
+                             "or reduce bottom_angle / edge_radius")
+        if z_t1 >= z_top:
+            raise ValueError(f"edge_radius={rf} is taller than the annulus height H={H}")
+
+    if has_bottom and rf > 0.0:
+        arc_len = rf * (math.pi / 2.0 - slope)
+        if n_edge is None:
+            n_edge = max(2, math.ceil(arc_len / (gap / nr_gap)))
+            src_edge = "gap cell size"
+        else:
+            if n_edge < 2:
+                raise ValueError(f"n_edge must be >= 2; got {n_edge}")
+            src_edge = "explicit"
+        # Lower half of the arc (in block A) and upper half (block D).
+        n_lo = n_edge // 2
+        n_hi = n_edge - n_lo
+    else:
+        arc_len = 0.0
+        n_edge = n_lo = n_hi = 0
+        src_edge = "unused"
 
     gmsh.initialize()
 
@@ -213,55 +306,107 @@ def build_wedge(
         #
         # Block C is the annulus and always exists. Blocks A and B are the two
         # halves of the foot and appear only when bottom_gap > 0: A from the
-        # axis out to Ri, B from Ri out to Ro. Splitting the foot at Ri is what
+        # axis out to r_t2 under the bob's bottom face, B from r_t2 out to Ro.
+        # Block D sits between the fillet arc and the cup wall and appears
+        # only when edge_radius > 0. Splitting the domain this way is what
         # lets every block stay a four-sided transfinite patch.
         # -------------------------------------------------------------------
-        p5 = pt(Ri, hb)
-        p6 = pt(Ro, hb)
+        t1 = pt(Ri, z_t1)       # bob side meets the fillet (the corner if rf = 0)
+        q1 = pt(Ro, z_t1)
         p7 = pt(Ri, z_top)
         p8 = pt(Ro, z_top)
 
-        l_int_BC = geo.addLine(p5, p6)      # z = hb, Ri..Ro
-        l_right_C = geo.addLine(p6, p8)     # r = Ro, hb..z_top
+        l_int_C = geo.addLine(t1, q1)       # z = z_t1, Ri..Ro
+        l_right_C = geo.addLine(q1, p8)     # r = Ro, z_t1..z_top
         l_top_C = geo.addLine(p8, p7)       # z = z_top, Ro..Ri
-        l_left_C = geo.addLine(p7, p5)      # r = Ri, z_top..hb
+        l_left_C = geo.addLine(p7, t1)      # r = Ri, z_top..z_t1
 
-        loop_C = geo.addCurveLoop([l_int_BC, l_right_C, l_top_C, l_left_C])
+        loop_C = geo.addCurveLoop([l_int_C, l_right_C, l_top_C, l_left_C])
         surfaces = [geo.addPlaneSurface([loop_C])]
 
-        radial_gap = [l_int_BC, l_top_C]
+        radial_gap = [l_int_C, l_top_C]
         axial_ann = [l_right_C, l_left_C]
         radial_core = []
         axial_bot = []
+        edge_lo = []
+        edge_hi = []
+        corners = {}        # surface -> corner points, for blocks with > 4 curves
 
         if has_bottom:
             p1 = pt(r_axis, 0.0)
-            p2 = pt(Ri, 0.0)
             p3 = pt(Ro, 0.0)
-            p4 = pt(r_axis, hb)
+            p4 = pt(r_axis, hb + r_axis * tan_s)
 
-            l_bot_A = geo.addLine(p1, p2)     # z = 0, r_axis..Ri
-            l_bot_B = geo.addLine(p2, p3)     # z = 0, Ri..Ro
-            l_right_B = geo.addLine(p3, p6)   # r = Ro, 0..hb
-            l_bob = geo.addLine(p5, p4)       # z = hb, Ri..r_axis
-            l_axis = geo.addLine(p4, p1)      # r = r_axis, hb..0
-            l_int_AB = geo.addLine(p2, p5)    # r = Ri, 0..hb
+            if rf > 0.0:
+                # The arc is split at its midpoint M. The lower half continues
+                # the bob's bottom face as the top of block A (no kink at T2);
+                # the upper half is the left side of block D. The B/D line
+                # starts at M, where the arc is at ~45 degrees, so no cell
+                # corner is sharper than ~45 degrees.
+                t2 = pt(r_t2, z_t2)             # fillet meets the bob's bottom face
+                m = pt(r_m, z_m)                # midpoint of the arc
+                q2 = pt(Ro, z_m)
+                centre = pt(rc, zc)
+                f_t2 = pt(r_t2, 0.0)
+                f2 = pt(r_m, 0.0)
 
-            loop_A = geo.addCurveLoop([l_bot_A, l_int_AB, l_bob, l_axis])
-            loop_B = geo.addCurveLoop([l_bot_B, l_right_B, -l_int_BC, -l_int_AB])
-            surfaces += [geo.addPlaneSurface([loop_A]),
-                         geo.addPlaneSurface([loop_B])]
+                l_arc_hi = geo.addCircleArc(t1, centre, m)
+                l_arc_lo = geo.addCircleArc(m, centre, t2)
+                l_int_BD = geo.addLine(m, q2)       # z = z_m, r_m..Ro
+                l_right_D = geo.addLine(q2, q1)     # r = Ro, z_m..z_t1
 
-            radial_gap.append(l_bot_B)
-            radial_core += [l_bot_A, l_bob]
-            axial_bot += [l_right_B, l_axis, l_int_AB]
+                loop_D = geo.addCurveLoop([l_int_BD, l_right_D, -l_int_C, l_arc_hi])
+                surfaces.append(geo.addPlaneSurface([loop_D]))
+
+                l_bot_A = geo.addLine(p1, f_t2)     # z = 0, r_axis..r_t2
+                l_bot_A2 = geo.addLine(f_t2, f2)    # z = 0, r_t2..r_m, under the lower arc
+                l_bot_B = geo.addLine(f2, p3)       # z = 0, r_m..Ro
+                l_right_B = geo.addLine(p3, q2)     # r = Ro, 0..z_m
+                l_int_AB = geo.addLine(f2, m)       # r = r_m, 0..z_m
+                l_bob = geo.addLine(t2, p4)         # bob's bottom face, r_t2..r_axis
+                l_axis = geo.addLine(p4, p1)        # r = r_axis, down to 0
+
+                loop_A = geo.addCurveLoop(
+                    [l_bot_A, l_bot_A2, l_int_AB, l_arc_lo, l_bob, l_axis])
+                loop_B = geo.addCurveLoop([l_bot_B, l_right_B, -l_int_BD, -l_int_AB])
+                s_A = geo.addPlaneSurface([loop_A])
+                surfaces += [s_A, geo.addPlaneSurface([loop_B])]
+                # A has six curves; its four corners pair the floor (two
+                # curves) with the bottom face plus the lower arc.
+                corners[s_A] = [p1, f2, m, p4]
+
+                radial_gap += [l_int_BD, l_bot_B]
+                radial_core += [l_bot_A, l_bob]
+                axial_bot += [l_right_B, l_axis, l_int_AB]
+                edge_hi += [l_arc_hi, l_right_D]
+                edge_lo += [l_arc_lo, l_bot_A2]
+            else:
+                f2 = pt(Ri, 0.0)
+
+                l_bot_A = geo.addLine(p1, f2)       # z = 0, r_axis..Ri
+                l_bot_B = geo.addLine(f2, p3)       # z = 0, Ri..Ro
+                l_right_B = geo.addLine(p3, q1)     # r = Ro, 0..z_edge
+                l_bob = geo.addLine(t1, p4)         # bob's bottom face, Ri..r_axis
+                l_axis = geo.addLine(p4, p1)        # r = r_axis, down to 0
+                l_int_AB = geo.addLine(f2, t1)      # r = Ri, 0..z_edge
+
+                loop_A = geo.addCurveLoop([l_bot_A, l_int_AB, l_bob, l_axis])
+                loop_B = geo.addCurveLoop([l_bot_B, l_right_B, -l_int_C, -l_int_AB])
+                surfaces += [geo.addPlaneSurface([loop_A]),
+                             geo.addPlaneSurface([loop_B])]
+
+                radial_gap.append(l_bot_B)
+                radial_core += [l_bot_A, l_bob]
+                axial_bot += [l_right_B, l_axis, l_int_AB]
 
         # -------------------------------------------------------------------
         # Structured meshing. setTransfiniteCurve takes NODES, hence n + 1.
         # Shared edges get their count from one list only, so opposite sides of
         # every block match by construction:
-        #   radial_gap  -> nr_gap    (l_int_BC is shared by B and C)
+        #   radial_gap  -> nr_gap    (l_int_C and l_int_BD are shared)
         #   axial_bot   -> nz_bot    (l_int_AB is shared by A and B)
+        #   edge_lo     -> n_lo      (lower arc half and the floor under it)
+        #   edge_hi     -> n_hi      (upper arc half and the cup wall facing it)
         # -------------------------------------------------------------------
         def transfinite(curves, n, bump):
             for c in curves:
@@ -276,9 +421,11 @@ def build_wedge(
         transfinite(axial_ann, nz_ann, 1.0)
         transfinite(radial_core, nr_core, 1.0)
         transfinite(axial_bot, nz_bot, bump_z)
+        transfinite(edge_lo, n_lo, 1.0)
+        transfinite(edge_hi, n_hi, 1.0)
 
         for s in surfaces:
-            geo.mesh.setTransfiniteSurface(s)
+            geo.mesh.setTransfiniteSurface(s, cornerTags=corners.get(s, []))
             geo.mesh.setRecombine(2, s)        # triangles -> quads
 
         # -------------------------------------------------------------------
@@ -319,23 +466,29 @@ def build_wedge(
         r_small = r_axis if r_axis > 0.0 else Ri
         tol_y = 1e-3 * r_small * math.sin(half)
 
-        def rz_box(tag):
-            """Extent of a surface in (r, z), from its own corner points.
+        def rz_points(tag):
+            """Corner points of a surface as (r, z, y).
 
             Not getBoundingBox: on a revolved surface that box is built from a
             tessellation and sits ~1e-7 m inside the true radius, which is far
             too coarse to tell Ri from Ro at a 0.5 mm gap. The corner points
             are exact.
             """
-            rs, zs, ys = [], [], []
+            points = []
             for _, pnt in gmsh.model.getBoundary(
                 [(2, tag)], combined=False, oriented=False, recursive=True
             ):
                 x, y, z = gmsh.model.getValue(0, pnt, [])
-                rs.append(math.hypot(x, y))
-                zs.append(z)
-                ys.append(y)
-            return min(rs), max(rs), min(zs), max(zs), min(ys), max(ys)
+                points.append((math.hypot(x, y), z, y))
+            return points
+
+        def on_bob_bottom(r, z):
+            """True if (r, z) lies on the bob's bottom face or its fillet."""
+            on_face = (r_axis - tol <= r <= r_t2 + tol
+                       and abs(z - (hb + r * tan_s)) <= tol)
+            on_fillet = (rf > 0.0 and r >= r_t2 - tol and z <= zc + tol
+                         and abs(math.hypot(r - rc, z - zc) - rf) <= tol)
+            return on_face or on_fillet
 
         groups = {name: [] for name in (
             "front", "back", "rotorSide", "rotorBottom",
@@ -349,39 +502,40 @@ def build_wedge(
             if len(up) != 1:
                 continue                        # interior block interface
 
-            rmin, rmax, zmin, zmax, ymin, ymax = rz_box(tag)
+            points = rz_points(tag)
+            rs = [p[0] for p in points]
+            zs = [p[1] for p in points]
+            ys = [p[2] for p in points]
+            box = (min(rs), max(rs), min(zs), max(zs))
+
+            def every(test):
+                return all(test(r, z) for r, z, _ in points)
 
             # The sliver left behind where the wedge closes on the axis. It has
             # no area, so it must not become a patch: an OpenFOAM wedge simply
             # has no faces there.
-            if rmax <= tol:
+            if max(rs) <= tol:
                 collapsed.append(tag)
                 continue
 
-            if ymin >= -tol_y:                  # everything at +angle/2
+            if min(ys) >= -tol_y:               # everything at +angle/2
                 groups["front"].append(tag)
-            elif ymax <= tol_y:                 # everything at -angle/2
+            elif max(ys) <= tol_y:              # everything at -angle/2
                 groups["back"].append(tag)
-            elif rmax - rmin <= tol:            # constant radius
-                if abs(rmax - Ro) <= tol:
-                    groups["cupWall"].append(tag)
-                elif abs(rmax - Ri) <= tol:
-                    groups["rotorSide"].append(tag)
-                elif abs(rmax - r_axis) <= tol:
-                    groups["coreWall"].append(tag)
-                else:
-                    unclassified.append((tag, rmin, rmax, zmin, zmax))
-            elif zmax - zmin <= tol:            # constant height
-                if abs(zmax) <= tol:
-                    groups["cupBottom"].append(tag)
-                elif abs(zmax - z_top) <= tol:
-                    groups["top"].append(tag)
-                elif abs(zmax - hb) <= tol and rmax <= Ri + tol:
-                    groups["rotorBottom"].append(tag)
-                else:
-                    unclassified.append((tag, rmin, rmax, zmin, zmax))
+            elif every(lambda r, z: abs(r - Ro) <= tol):
+                groups["cupWall"].append(tag)
+            elif every(lambda r, z: abs(r - Ri) <= tol):
+                groups["rotorSide"].append(tag)
+            elif r_axis > 0.0 and every(lambda r, z: abs(r - r_axis) <= tol):
+                groups["coreWall"].append(tag)
+            elif every(lambda r, z: abs(z) <= tol):
+                groups["cupBottom"].append(tag)
+            elif every(lambda r, z: abs(z - z_top) <= tol):
+                groups["top"].append(tag)
+            elif every(on_bob_bottom):          # bottom face and fillet
+                groups["rotorBottom"].append(tag)
             else:
-                unclassified.append((tag, rmin, rmax, zmin, zmax))
+                unclassified.append((tag, *box))
 
         if unclassified:
             raise RuntimeError(
@@ -436,8 +590,9 @@ def build_wedge(
                     degenerate += 1
 
         cells_ann = nr_gap * nz_ann
-        cells_bot = (nr_core + nr_gap) * nz_bot if has_bottom else 0
-        expected = cells_ann + cells_bot
+        cells_bot = (nr_core + n_lo + nr_gap) * nz_bot if has_bottom else 0
+        cells_edge = nr_gap * n_hi
+        expected = cells_ann + cells_bot + cells_edge
         # The column against the axis is what the collapse turns into prisms.
         expected_prisms = nz_bot if (has_bottom and r_axis == 0.0) else 0
 
@@ -451,6 +606,9 @@ def build_wedge(
             "gap": gap,
             "H": H,
             "bottom_gap": hb,
+            "edge_radius": rf,
+            "bottom_angle_deg": bottom_angle,
+            "z_edge": z_edge,
             "z_top": z_top,
             "wedge_angle_deg": angle,
             "patches": {k: len(v) for k, v in groups.items() if v},
@@ -483,7 +641,11 @@ def build_wedge(
             line("annulus H", H, nz_ann, src_ann)
             if has_bottom:
                 line("bottom gap", hb, nz_bot, src_bot)
-                line("core", Ri - r_axis, nr_core, src_core)
+                line("core", r_t2 - r_axis, nr_core, src_core)
+                if rf > 0.0:
+                    line("edge arc", arc_len, n_edge, src_edge)
+                print(f"  bob bottom {bottom_angle:9.3f} deg slope, "
+                      f"edge radius {rf * 1e3:.4f} mm")
             # theta is not a refinement direction: a wedge is one cell thick,
             # so this size follows from the opening angle alone.
             print(f"  {'theta':<10s} {'':12s}     1 cells  "
@@ -556,6 +718,11 @@ def main():
                     help="inner radius of the foot, m; 0 reaches the axis")
     ap.add_argument("--angle", type=float, default=DEF_ANGLE,
                     help="wedge opening angle, degrees")
+    ap.add_argument("--edge-radius", type=float, default=DEF_EDGE_RADIUS,
+                    help="fillet radius at the bob's bottom edge, m; 0 is sharp")
+    ap.add_argument("--bottom-angle", type=float, default=DEF_BOTTOM_ANGLE,
+                    help="slope of the bob's bottom face, degrees; "
+                         "positive = tip down at the axis, 0 = flat")
     ap.add_argument("--nr-gap", type=int, default=None,
                     help=f"radial cells across the gap (default {DEF_NR_GAP})")
     ap.add_argument("--nr-core", type=int, default=None,
@@ -564,6 +731,8 @@ def main():
                     help=f"axial cells up the annulus (default {DEF_NZ_ANN})")
     ap.add_argument("--nz-bot", type=int, default=None,
                     help=f"axial cells across the foot (default {DEF_NZ_BOT})")
+    ap.add_argument("--n-edge", type=int, default=None,
+                    help="cells along the fillet arc (default: gap cell size)")
     ap.add_argument("--max-size", type=float, default=None,
                     help="target max cell size in r and z, m")
     ap.add_argument("--max-size-r", type=float, default=None,
@@ -587,10 +756,13 @@ def main():
         bottom_gap=args.bottom_gap,
         r_axis=args.r_axis,
         angle=args.angle,
+        edge_radius=args.edge_radius,
+        bottom_angle=args.bottom_angle,
         nr_gap=args.nr_gap,
         nr_core=args.nr_core,
         nz_ann=args.nz_ann,
         nz_bot=args.nz_bot,
+        n_edge=args.n_edge,
         max_size=args.max_size,
         max_size_r=args.max_size_r,
         max_size_z=args.max_size_z,
