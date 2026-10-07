@@ -14,9 +14,33 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
+<!--(if viscosity_model == "quemada")-->
+// Shear-thinning blood: Quemada (Das) at hematocrit |-hct-|, density
+// |-rho_kg_m3-| kg/m^3, from cfdtools.blood. Table of (shear rate 1/s,
+// kinematic viscosity m^2/s); linear interpolation, clamped outside the range.
+transportModel  strainRateFunction;
+
+strainRateFunctionCoeffs
+{
+    function
+    {
+        type                table;
+        outOfBounds         clamp;
+        interpolationScheme linear;
+        values              |-nu_table-|;
+    }
+}
+<!--(elif viscosity_model == "quemada_newtonian")-->
+// Constant viscosity: Quemada (Das) at hematocrit |-hct-| and the bob-wall
+// shear rate |-gamma_ref-| 1/s, density |-rho_kg_m3-| kg/m^3.
+transportModel  Newtonian;
+
+nu              |-nu-|;
+<!--(else)-->
 transportModel  Newtonian;
 
 // |-mu_mPa_s-| mPa.s / |-rho_kg_m3-| kg/m^3
 nu              |-nu-|;
+<!--(end)-->
 
 // ************************************************************************* //

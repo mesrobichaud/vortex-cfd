@@ -25,8 +25,16 @@ bump_r              1.0;        // radial clustering across the gap; <1 clusters
 bump_z              1.0;        // axial clustering across the bottom gap; <1 clusters to both walls
 
 // --- Fluid ------------------------------------------------------------------
-mu_mPa_s            3.5;        // dynamic viscosity
-rho_kg_m3           1050.0;     // density
+// viscosity_model:
+//   newtonian          constant viscosity mu_mPa_s
+//   quemada_newtonian  constant viscosity from the Quemada (Das) model at hct
+//                      and the shear rate at the bob wall (mu_mPa_s not used)
+//   quemada            shear-thinning: Quemada (Das) at hct, as a
+//                      strainRateFunction table (mu_mPa_s not used)
+viscosity_model     newtonian;
+mu_mPa_s            3.5;        // dynamic viscosity (newtonian only)
+hct                 0.45;       // hematocrit as a fraction (quemada models only)
+rho_kg_m3           1050.0;     // density; for blood about 1025 + 75*hct
 
 // --- Operating point --------------------------------------------------------
 speed_rpm           100.0;      // bob speed; positive is counter-clockwise about +z
