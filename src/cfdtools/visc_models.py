@@ -1,5 +1,5 @@
 """
-blood.py -- viscosity of blood as a function of hematocrit and shear rate.
+visc_models.py -- viscosity of blood as a function of hematocrit and shear rate.
 
 Models:
 
