@@ -19,6 +19,8 @@ full-geometry/
 design-deviations.ipynb
 geometry/full3d.py
 models/
+data_ref/figures/
+data_ref/digitized/digitization-checks/
 
 # Hiding license temporarily 
 LICENSE

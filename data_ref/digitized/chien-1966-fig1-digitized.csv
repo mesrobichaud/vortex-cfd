@@ -1,0 +1,129 @@
+# Digitized from Chien, Usami, Taylor, Lundberg and Gregersen (1966), J. Appl. Physiol. 21, 81-87, Fig. 1:
+# viscosity of human whole blood against hematocrit at four shear rates, 37 C, five subjects (subject not recorded).
+# Source image: ../figures/Chien1966-fig1.png (pixel_x, pixel_y refer to it). Points only; the fitted lines were not
+# digitized. Read with pandas.read_csv(..., comment='#').
+# Axes calibrated from the tick marks (x linear, 0-100 %; y logarithmic, 0.1-10000 cP).
+# Closed symbols are 0.052 and 5.2 1/s, open symbols 0.52 and 52 1/s; each point is assigned to the nearer of
+# its pair of curves. Position: centroid of the filled marker, or centre of the open marker's interior.
+# Reading error about +-1 to 2 px: about +-0.5 % hematocrit and +-2 % viscosity. confidence: high = detected
+# automatically; medium = read by hand (outline broken by a line, or overlapping markers); low = hematocrit
+# below about 10 %, where the curves of a pair meet and the shear rate cannot be assigned.
+# Plasma viscosity (Fig. 3, H = 0, solid line): 1.12 cP (1.10-1.13 along the line), measured from the pixels of
+# ../figures/Chien1966-fig3.png; the Ringer solution line in the same figure reads 0.71 cP, close to water at 37 C.
+# Calibration, piecewise linear between ticks: pixel_x 367, 468.5, 570, 672, 774, 875.5 = hematocrit 0 ... 100 %;
+# pixel_y 27.5, 286, 544.5, 803.5, 1062.5, 1324 = viscosity 1e4 ... 1e-1 cP (log10).
+shear_rate_1_per_s,hematocrit_percent,viscosity_cP,symbol,confidence,pixel_x,pixel_y
+0.052,8.52,1.717,filled,low,410.2,1001.7
+0.052,16.04,7.427,filled,high,448.4,837.0
+0.052,19.51,11.26,filled,high,466.0,790.1
+0.052,24.73,15.67,filled,high,492.5,753.0
+0.052,28.28,32.91,filled,high,510.5,669.5
+0.052,30.45,28.95,filled,high,521.5,683.9
+0.052,33.33,47.6,filled,high,536.2,628.0
+0.052,39.70,59.71,filled,high,568.5,602.5
+0.052,44.52,95.18,filled,high,593.1,550.1
+0.052,46.47,108.3,filled,high,603.0,535.6
+0.052,49.54,124,filled,high,618.6,520.4
+0.052,57.84,197.1,filled,high,661.0,468.3
+0.052,62.39,255.6,filled,high,684.2,439.2
+0.052,65.21,285.3,filled,high,698.6,426.8
+0.052,69.30,325.7,filled,high,719.4,412.0
+0.052,71.18,478.1,filled,high,729.0,368.8
+0.052,71.86,423.3,filled,high,732.5,382.5
+0.052,77.83,448.4,filled,high,763.0,376.1
+0.052,80.39,644.3,filled,high,776.0,335.3
+0.052,81.95,715.5,filled,high,783.9,323.6
+0.052,83.66,794.1,filled,high,792.6,311.9
+0.052,88.28,817,filled,high,816.0,308.7
+0.052,89.07,1178,filled,high,820.0,267.6
+0.052,90.25,913.8,filled,high,826.0,296.1
+0.052,92.04,1019,filled,high,835.1,283.9
+0.052,96.27,1112,filled,high,856.5,274.1
+0.052,98.62,2470,filled,high,868.5,184.5
+0.052,98.91,2169,filled,high,870.0,199.1
+0.52,7.88,2.018,open,low,407.0,983.5
+0.52,15.96,3.248,open,high,448.0,930.0
+0.52,19.21,4.056,open,high,464.5,905.0
+0.52,24.53,5.066,open,high,491.5,880.0
+0.52,30.34,7.936,open,high,521.0,829.5
+0.52,31.83,13.95,open,medium,528.6,766.1
+0.52,39.31,15.67,open,high,566.5,753.0
+0.52,44.80,31.07,open,high,594.5,676.0
+0.52,46.57,30.52,open,high,603.5,678.0
+0.52,48.92,35.66,open,high,615.5,660.5
+0.52,50.69,31.62,open,high,624.5,674.0
+0.52,57.84,40.56,open,high,661.0,646.0
+0.52,62.16,68.23,open,high,683.0,587.5
+0.52,64.41,72.93,open,high,694.5,580.0
+0.52,66.27,61.05,open,high,704.0,600.0
+0.52,68.26,72.86,open,medium,714.1,580.1
+0.52,71.37,123.3,open,high,730.0,521.0
+0.52,72.16,100.4,open,high,734.0,544.0
+0.52,77.94,102.3,open,high,763.5,542.0
+0.52,80.30,139,open,high,775.5,507.5
+0.52,82.17,137.8,open,high,785.0,508.5
+0.52,83.55,154,open,high,792.0,496.0
+0.52,88.57,178.4,open,high,817.5,479.5
+0.52,89.26,259.4,open,high,821.0,437.5
+0.52,90.00,205.9,open,medium,824.8,463.4
+0.52,92.02,225.9,open,high,835.0,453.0
+0.52,96.16,301.8,open,high,856.0,420.5
+0.52,98.72,299.1,open,high,869.0,421.5
+0.52,99.11,466.9,open,high,871.0,371.5
+5.2,5.55,1.291,filled,low,395.2,1033.8
+5.2,16.12,2.108,filled,high,448.8,978.6
+5.2,19.39,2.58,filled,high,465.4,955.9
+5.2,24.35,2.765,filled,high,490.6,948.1
+5.2,28.18,4.242,filled,high,510.0,900.0
+5.2,30.26,3.803,filled,high,520.6,912.3
+5.2,33.18,4.938,filled,high,535.4,882.9
+5.2,39.41,5.681,filled,high,567.0,867.1
+5.2,45.13,8.478,filled,high,596.2,822.1
+5.2,46.47,9.882,filled,high,603.0,804.8
+5.2,49.01,13.18,filled,high,616.0,772.5
+5.2,50.20,10.82,filled,high,622.0,794.7
+5.2,57.56,15.48,filled,high,659.5,754.4
+5.2,61.56,19.88,filled,medium,679.9,726.2
+5.2,61.80,18.05,filled,medium,681.2,737.1
+5.2,64.19,20.31,filled,medium,693.4,723.8
+5.2,65.87,19.67,filled,medium,701.9,727.4
+5.2,70.53,29.11,filled,high,725.7,683.3
+5.2,71.36,35.67,filled,high,730.0,660.5
+5.2,78.13,32.06,filled,high,764.4,672.4
+5.2,80.87,43.05,filled,high,778.4,639.3
+5.2,83.55,49.71,filled,high,792.0,623.1
+5.2,88.28,64.87,filled,high,816.0,593.2
+5.2,89.07,104,filled,high,820.0,540.0
+5.2,90.92,88.59,filled,high,829.4,558.1
+5.2,96.42,131.2,filled,high,857.4,514.0
+5.2,98.99,116.2,filled,high,870.4,527.7
+5.2,99.23,223.1,filled,high,871.6,454.4
+52,5.62,1.174,open,low,395.5,1044.5
+52,15.76,1.855,open,high,447.0,993.0
+52,19.61,2.266,open,high,466.5,970.5
+52,24.24,2.379,open,high,490.0,965.0
+52,28.18,3.291,open,high,510.0,928.5
+52,30.34,2.88,open,high,521.0,943.5
+52,33.10,3.566,open,high,535.0,919.5
+52,39.51,3.967,open,high,567.5,907.5
+52,44.80,4.954,open,high,594.5,882.5
+52,46.37,5.134,open,high,602.5,878.5
+52,48.73,6.298,open,high,614.5,855.5
+52,50.49,5.415,open,high,623.5,872.5
+52,58.21,7.079,open,medium,662.9,842.4
+52,62.06,9.109,open,high,682.5,814.0
+52,62.28,8.234,open,medium,683.6,825.4
+52,64.31,8.869,open,high,694.0,817.0
+52,69.70,13.65,open,medium,721.5,768.5
+52,71.57,16.38,open,high,731.0,748.0
+52,71.57,13.06,open,high,731.0,773.5
+52,77.94,15.25,open,high,763.5,756.0
+52,80.39,19.48,open,high,776.0,728.5
+52,82.46,19.57,open,high,786.5,728.0
+52,83.55,22.56,open,high,792.0,712.0
+52,88.67,32.48,open,high,818.0,671.0
+52,89.16,50.43,open,high,820.5,621.5
+52,91.90,42.14,open,medium,834.4,641.7
+52,92.12,53.91,open,high,835.5,614.0
+52,96.65,82.6,open,high,858.5,566.0
+52,99.31,161.8,open,high,872.0,490.5
