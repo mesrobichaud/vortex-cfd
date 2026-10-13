@@ -21,6 +21,8 @@ geometry/full3d.py
 models/
 data_ref/figures/
 data_ref/digitized/digitization-checks/
+**/post/
+**/studies/
 
 # Hiding license temporarily 
 LICENSE
